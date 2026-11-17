@@ -65,9 +65,17 @@
     if (actx.state !== 'running') actx.resume().catch(() => {});
     return actx;
   }
+  let soundToken = 0; // bumping this cancels any sound sequence still waiting to play
   function stopAllSounds() {
+    soundToken++;
     for (const o of liveTones) { try { o.stop(); } catch (e) { /* already stopped */ } }
     liveTones.clear();
+  }
+  // play a series of notes live, one at a time; nothing is lined up in advance,
+  // so a paused or cancelled sequence can never play later by surprise
+  function sequence(notes, keepGoing = () => true) {
+    const tok = soundToken;
+    for (const [delay, args] of notes) setTimeout(() => { if (tok === soundToken && keepGoing()) tone(...args); }, delay * 1000);
   }
   function tone(freq, dur, type = 'sine', vol = 0.15, when = 0) {
     if (!settings.sound) return;
@@ -85,10 +93,11 @@
   document.addEventListener('visibilitychange', () => { if (document.hidden) stopAllSounds(); });
   const sfx = {
     click: () => tone(660, 0.08, 'triangle', 0.08),
-    spin: () => { let t = 0; for (let i = 0; i < 34; i++) { tone(1100, 0.03, 'square', 0.04, t); t += 0.035 + i * i * 0.00028; } },
-    win: () => [523, 659, 784, 1047].forEach((f, i) => tone(f, 0.35, 'triangle', 0.14, i * 0.12)),
-    lose: () => [392, 330, 262, 196].forEach((f, i) => tone(f, 0.4, 'sawtooth', 0.06, i * 0.16)),
-    right: () => [660, 880].forEach((f, i) => tone(f, 0.2, 'triangle', 0.12, i * 0.1)),
+    // wheel ticks only play while the spinning wheel is actually on screen
+    spin: () => { let t = 0; const notes = []; for (let i = 0; i < 34; i++) { notes.push([t, [1100, 0.03, 'square', 0.04]]); t += 0.035 + i * i * 0.00028; } sequence(notes, () => !!document.querySelector('#wheel') && !modal.hidden); },
+    win: () => sequence([523, 659, 784, 1047].map((f, i) => [i * 0.12, [f, 0.35, 'triangle', 0.14]])),
+    lose: () => sequence([392, 330, 262, 196].map((f, i) => [i * 0.16, [f, 0.4, 'sawtooth', 0.06]])),
+    right: () => sequence([660, 880].map((f, i) => [i * 0.1, [f, 0.2, 'triangle', 0.12]])),
     wrong: () => tone(180, 0.35, 'square', 0.06)
   };
 
@@ -758,6 +767,7 @@
 
   function onRegionClick(r, feat) {
     if (!S || !modal.hidden) return;
+    stopAllSounds(); // the info card is quiet: no leftover battle sounds
     sfx.click(); addVisited(r); save();
     const fact = nextFact(r); const featName = feat && feat.id !== r ? feat.nm : null;
     const body = cardHTML(r, fact, featName);
