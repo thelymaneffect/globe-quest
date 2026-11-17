@@ -428,12 +428,11 @@
         if (plan && plan.hide) continue;
         const sizePx = Math.sqrt(plan && plan.area ? plan.area : f.area) * scale;
         let name = plan && plan.text ? plan.text : (this.labelName ? this.labelName(f.o) : f.nm);
-        let fsz = this.mode === 'us' ? 14 : Math.max(13, Math.min(24, sizePx / 7)); // every state name the same size
+        let fsz = 14; // every country and state name the same size (bigger than capitals 12, cities 10.5, landforms 10)
         ctx.font = `800 ${fsz}px Nunito, sans-serif`;
         let tw = ctx.measureText(name).width;
         if (sizePx < tw * 0.9) { // doesn't fit: try a smaller size, then the short name (e.g. "RI")
-          if (this.mode !== 'us') { fsz = 12; ctx.font = `800 ${fsz}px Nunito, sans-serif`; tw = ctx.measureText(name).width; }
-          if (sizePx < tw * 0.9) {
+          {
             const short = !(plan && plan.text) && this.labelShort ? this.labelShort(f.o) : null;
             if (!short) continue;
             name = short; tw = ctx.measureText(name).width;
@@ -466,7 +465,7 @@
       for (const [name, lon, lat, major] of WATERS) {
         if (!major && eff < (this.mode === 'us' ? 3 : 1.8)) continue;
         const s = this._toScreen([lon, lat]); if (!s || s[0] < 0 || s[1] < 0 || s[0] > this.w || s[1] > this.h) continue;
-        const fsz = major ? Math.min(17, 12 + eff) : 12;
+        const fsz = major ? 12 : 10.5; // oceans and seas stay smaller than country names
         ctx.font = `italic 700 ${fsz}px Nunito, sans-serif`;
         if ('letterSpacing' in ctx) ctx.letterSpacing = major ? '2px' : '1px';
         const label = major ? name.toUpperCase() : name; const tw = ctx.measureText(label).width;

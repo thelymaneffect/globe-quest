@@ -20,13 +20,13 @@
   const MODES = {
     world: {
       key: 'world', title: 'World Mode', unit: 'country', units: 'countries',
-      scripts: ['data/world.js', 'data/world-meta.js', 'data/info-africa.js', 'data/info-asia.js', 'data/info-europe.js', 'data/info-americas-oceania.js', 'data/extras.js', 'data/nature.js'],
+      scripts: ['data/world.js', 'data/world-meta.js', 'data/info-africa.js', 'data/info-asia.js', 'data/info-europe.js', 'data/info-americas-oceania.js', 'data/extras.js', 'data/nature.js', 'data/pictures.js'],
       geo: () => window.GEO_WORLD, obj: 'countries', info: () => window.INFO,
       flag: (c) => `flags/${c.toLowerCase()}.svg`
     },
     us: {
       key: 'us', title: 'USA Mode', unit: 'state', units: 'states',
-      scripts: ['data/us.js', 'data/info-us.js', 'data/extras.js', 'data/nature.js', 'data/world.js', 'data/world-meta.js'],
+      scripts: ['data/us.js', 'data/info-us.js', 'data/extras.js', 'data/nature.js', 'data/world.js', 'data/world-meta.js', 'data/flowers-us.js', 'data/pictures.js'],
       geo: () => window.GEO_US, obj: 'states', info: () => window.INFO_US,
       flag: (c) => `flags/us/${window.INFO_US[c][0].toLowerCase().replace(/ /g, '-')}.svg`
     }
@@ -103,6 +103,8 @@
   };
 
   /* ---------------- helpers ---------------- */
+  // a photo next to the words (always shown) — animals, birds, flowers and types of land
+  const pic = (name, cls = 'pic') => { const f = window.PICS && window.PICS[name]; return f ? `<img class="${cls}" src="${f}" alt="${String(name).replace(/"/g, '')}" loading="lazy">` : ''; };
   const info = (c) => M.info()[c];
   const nameOf = (c) => (info(c) ? info(c)[0] : c);
   const shortCap = (c) => info(c)[1].split(/ \(|;|,/)[0].trim();
@@ -244,20 +246,7 @@
     if ('speechSynthesis' in window) speechSynthesis.cancel();
     const f = onSpeechDone; onSpeechDone = null; f && f();
   }
-  // true when the device has a natural-sounding ("Enhanced"/"Premium") voice for this accent
-  const hasNaturalVoice = (prefs) => { const v = pickVoice(prefs); return !!(v && /Premium|Enhanced|Neural|Natural/i.test(v.name)); };
-  function showVoiceHelp() {
-    openModal(`<h3 class="mtitle">🗣️ Get a more natural voice</h3>
-      <p class="center">Read Aloud uses the voices built into your device. Most devices start with basic voices that sound robotic. You can download free, natural-sounding ones (they also work in airplane mode):</p>
-      <ul class="voice-help">
-        <li><b>iPad / iPhone:</b> Settings → Accessibility → Spoken Content → Voices → English. Pick voices marked <b>Enhanced</b> or <b>Premium</b> and tap download. Good ones for different accents: American, British, Irish, Australian, Indian and South African.</li>
-        <li><b>Mac:</b> System Settings → Accessibility → Spoken Content → System Voice → <b>Manage Voices…</b> Download <b>Premium</b> or <b>Enhanced</b> English voices.</li>
-        <li><b>Android:</b> Settings → Accessibility → Text-to-speech → Google engine → Install voice data → download the high-quality English voices.</li>
-        <li><b>Windows:</b> Settings → Time &amp; language → Speech → Manage voices → add <b>Natural</b> voices.</li>
-      </ul>
-      <p class="small center">Then close and reopen the game. It automatically picks the best voice for each country’s accent.</p>
-      <div class="btn-row"><button class="btn gold" data-close>Got it!</button></div>`);
-  }
+
   function sayHello(r) {
     const narrator = pickVoice(accentFor(r));
     const lines = [];
@@ -283,7 +272,8 @@
   const cfg = () => window.LYMAN_CONFIG || {};
   function supportHTML() {
     return `<div class="support"><p>These games are free, with no ads. Your support helps us create more games and give your family even more ways to learn and play!</p>
-      <div class="support-row"><button class="btn support-btn" data-support>💛 Support us</button><button class="btn request-btn" data-request>💡 Request a game</button></div></div>`;
+      <div class="support-row"><button class="btn support-btn" data-support>💛 Support us</button><button class="btn request-btn" data-request>💡 Request a game</button></div>
+      <p class="small"><a href="#" data-credits>📷 Photo credits</a></p></div>`;
   }
   function showSupport() {
     const c = cfg();
@@ -326,7 +316,17 @@
       } catch (err) { msg.textContent = 'Hmm, that didn’t send. Please try again in a minute.'; $('#reqSend').disabled = false; }
     };
   }
+  async function showCredits() {
+    try { await loadScript('data/pictures.js'); } catch (e) { /* offline and not saved yet */ }
+    const list = (window.PIC_CREDITS || []).slice().sort((a, b) => a[0].localeCompare(b[0]));
+    openModal(`<h3 class="mtitle">📷 Photo credits</h3>
+      <p class="center small">Thank you to the photographers who share their pictures on Wikimedia Commons. Tap a name to see the original photo and its license.</p>
+      <ul class="credits">${list.map(([name, , artist, lic, url]) => `<li><b>${esc(name)}</b>: photo by ${esc(artist)} (${esc(lic)}) ${url ? `<a href="${esc(url)}" target="_blank" rel="noopener">source</a>` : ''}</li>`).join('')}</ul>
+      <p class="center small">Map data: Natural Earth (public domain). Flags: flag-icons (MIT) and Wikimedia Commons.</p>
+      <div class="btn-row"><button class="btn gold" data-close>Close</button></div>`, { wide: true });
+  }
   document.addEventListener('click', (e) => {
+    if (e.target.closest('[data-credits]')) { e.preventDefault(); sfx.click(); showCredits(); return; }
     if (e.target.closest('[data-support]')) { sfx.click(); showSupport(); }
     else if (e.target.closest('[data-request]')) { sfx.click(); showRequest(); }
   });
@@ -674,8 +674,8 @@
       const b = map.regionArea(ref) || (window.WORLD_META && window.WORLD_META[ref] ? window.WORLD_META[ref].area : 0);
       if (a && b) {
         const ratio = a / b;
-        if (ratio >= 1.15) line += `<br>${esc(nameOf(r))} is about <b>${ratio >= 10 ? Math.round(ratio).toLocaleString() : ratio.toFixed(1)}×</b> bigger than ${esc(nameOf(ref))}!`;
-        else if (ratio <= 0.87) line += `<br>${esc(nameOf(ref))} is about <b>${(1 / ratio) >= 10 ? Math.round(1 / ratio).toLocaleString() : (1 / ratio).toFixed(1)}×</b> bigger than ${esc(nameOf(r))}!`;
+        if (ratio >= 1.15) line += `<br>${esc(nameOf(r))} is about <strong>${ratio >= 10 ? Math.round(ratio).toLocaleString() : ratio.toFixed(1)}×</strong> bigger than ${esc(nameOf(ref))}!`;
+        else if (ratio <= 0.87) line += `<br>${esc(nameOf(ref))} is about <strong>${(1 / ratio) >= 10 ? Math.round(1 / ratio).toLocaleString() : (1 / ratio).toFixed(1)}×</strong> bigger than ${esc(nameOf(r))}!`;
         else line += `<br>About the same size as ${esc(nameOf(ref))}!`;
       }
     }
@@ -709,7 +709,10 @@
     if (us) {
             rows += `<li><span class="ico">🏷️</span><div><b>Nickname</b>${esc(I[2])}</div></li>`;
       rows += `<li><span class="ico">📜</span><div><b>Became a state</b>${I[3]} — the ${ordinal(I[4])} state</div></li>`;
-      rows += `<li><span class="ico">🐦</span><div><b>State bird</b>${esc(I[5])}</div></li>`;
+      const bird = I[5].split(' (')[0];
+      rows += `<li class="with-pic"><span class="ico">🐦</span><div><b>State bird</b>${esc(I[5])}</div>${pic(bird)}</li>`;
+      const flower = (window.US_FLOWERS || {})[r];
+      if (flower) rows += `<li class="with-pic"><span class="ico">🌸</span><div><b>State flower</b>${esc(flower)}</div>${pic(flower)}</li>`;
       rows += `<li><span class="ico">👨‍👩‍👧</span><div><b>Population</b>${fmtPop(I[6])} people</div></li>`;
     } else {
       rows += `<li><span class="ico">👋</span><div><b>Say hello!</b>${esc(I[4])} <button class="chip" id="sayHi" style="padding:2px 10px;margin-left:4px">🔊</button></div></li>`;
@@ -719,70 +722,20 @@
     if (ex[0]) rows += `<li><span class="ico">🏛️</span><div><b>Famous place</b>${esc(ex[0])}</div></li>`;
     if (ex[1]) rows += `<li><span class="ico">🎉</span><div><b>Famous for</b>${esc(ex[1])}</div></li>`;
     const nat = nature(r);
-    if (nat.animal) rows += `<li><span class="ico">🌿</span><div><b>Nature</b>Animal: ${esc(nat.animal)}${nat.lands.length ? `<br>Land: ${esc(nat.lands.map((k) => LANDS[k][0]).join(', '))}` : ''}</div></li>`;
+    if (nat.animal) rows += `<li class="with-pic"><span class="ico">🐾</span><div><b>Animal that lives here</b>${esc(nat.animal)}</div>${pic(nat.animal)}</li>`;
+    if (nat.lands.length) rows += `<li><span class="ico">🌿</span><div style="width:100%"><b>Types of land</b><div class="land-grid">${nat.lands.map((k) => `<figure>${pic(LANDS[k][1], 'land-pic')}<figcaption>${esc(LANDS[k][0])}</figcaption></figure>`).join('')}</div></div></li>`;
     rows += `<li><span class="ico">📏</span><div><b>Size</b>${sizeLine(r)}</div></li>`;
     return `<img class="flag-big" src="${M.flag(r)}" alt="Flag of ${esc(I[0])}">
       <div class="cname">${esc(I[0])}</div>
       ${us ? `<div class="sub">📮 Abbreviation: <b>${r}</b><br>⭐ Capital: ${esc(I[1])}<span class="langs">🧭 Region: <b>${esc(continentOf(r))}</b>${whereLine(r)}</span></div>` : `<div class="sub">⭐ Capital: ${esc(I[1])}<span class="langs">🌎 Continent: <b>${esc(TWO_CONTINENTS[r] ? TWO_CONTINENTS[r].join(' & ') : continentOf(r))}</b></span>${whereLine(r, true) ? `<span class="langs">🧭 ${whereLine(r, true)}</span>` : ''}<span class="langs">🗣️ Language: <b>${esc(I[2])}</b>${I[3] ? `<br><span class="also">Also spoken: ${esc(I[3])}</span>` : ''}</span></div>`}
       ${status}
       <div class="didyou" id="factBox"><b>💡 Did you know?</b><span id="factText">${esc(fact)}</span></div>
-      <div class="card-tools"><button class="chip" id="readAloud">🔊 Read aloud</button><button class="chip" id="moreFact">🔀 Another fact</button><button class="chip" id="zoomTo">🔎 Zoom to it</button></div>
+      <div class="card-tools"><button class="chip" id="moreFact">🔀 Another fact</button><button class="chip" id="zoomTo">🔎 Zoom to it</button></div>
       <ul class="facts">${rows}</ul>
-      ${'speechSynthesis' in window && !hasNaturalVoice(accentFor(r)) ? '<p class="small center"><a href="#" id="voiceHelp">🗣️ Voice sounds robotic? Get a more natural voice</a></p>' : ''}`;
-  }
-
-  function readCard(r, done) {
-    const I = info(r), us = M.key === 'us';
-    const fact = $('#factText') ? $('#factText').textContent : '';
-    const narrator = pickVoice(accentFor(r));
-    const name = I[0].replace(/ \(.*\)$/, '');
-    const L = [];
-    L.push({ text: `Welcome to ${name}!` });
-    if (us) {
-      L.push({ text: `Its abbreviation is ${r.split('').join(' ')}.` });
-      L.push({ text: `The capital is ${I[1]}.` });
-      L.push({ text: `Its nickname is ${I[2].replace(/^The /, 'the ')}.` });
-      L.push({ text: `${name} became the ${ordinal(I[4])} state in ${I[3]}.` });
-      L.push({ text: `The state bird is the ${forSpeech(I[5])}.` });
-    } else {
-      L.push({ text: `The capital city is ${shortCap(r)}.` });
-      let langs = forSpeech(I[2]);
-      const others = I[3] ? forSpeech(I[3]) : '';
-      if (others && /^and /.test(others)) langs += `, ${others}`;
-      L.push({ text: `People here speak ${langs}.` });
-      if (others && !/^and /.test(others)) L.push({ text: `You might also hear ${/\band\b/.test(others) ? others : listJoin(others.split(/,\s*/))}.` });
-      const gs = greetingsOf(r);
-      if (gs.length && gs[0].word) {
-        const g = gs[0], v = greetingVoice(r, g.lang);
-        if (/English|Patois/.test(g.lang)) L.push({ text: 'Want to say hello like a local?' }, { text: `Just say, ${g.word}!` });
-        else {
-          L.push({ text: 'Want to say hello like a local?' }, { text: `In ${g.lang.replace(/^(Austrian|Swiss|Liechtenstein) /, '')}, you say…` });
-          L.push({ text: g.word.replace(/[.!?]*$/, '') + '!', voice: v || narrator, mood: v ? 'word' : 'excited' });
-        }
-        for (const g2 of gs.slice(1)) { // e.g. Canada and Belgium have two greetings
-          const v2 = greetingVoice(r, g2.lang);
-          L.push({ text: `Or in ${g2.lang},` }, { text: g2.word.replace(/[.!?]*$/, '') + '!', voice: v2 || narrator, mood: v2 ? 'word' : 'excited' });
-        }
-      }
-    }
-    if (fact) { L.push({ text: 'Did you know?', mood: 'question' }); L.push({ text: forSpeech(fact) }); }
-    const ex = extra(r);
-    if (ex[0]) L.push({ text: `A famous place to visit is ${forSpeech(withThe(ex[0], NEEDS_THE_PLACE))}.` });
-    if (ex[1]) L.push({ text: `${name} is famous for ${forSpeech(withThe(ex[1], NEEDS_THE_THING))}.` });
-    const nat = nature(r);
-    if (nat.animal) L.push({ text: `Keep an eye out for the ${forSpeech(nat.animal).replace(/,.*$/, '')}!` });
-    if (nat.lands.length) L.push({ text: `Here you'll find ${listJoin(nat.lands.map((k) => LANDS[k][0]))}.` });
-    speakLines(L, narrator, done);
+`;
   }
 
   function wireCardTools(r) {
-    const ra = $('#readAloud');
-    const reset = () => { if (ra.isConnected) { ra.textContent = '🔊 Read aloud'; ra.classList.remove('stop'); } };
-    ra.onclick = () => {
-      if (ra.classList.contains('stop')) { stopSpeech(); reset(); return; }
-      readCard(r, reset); ra.textContent = '⏹ Stop'; ra.classList.add('stop');
-    };
-    const vh = $('#voiceHelp'); if (vh) vh.onclick = (e) => { e.preventDefault(); stopSpeech(); showVoiceHelp(); };
     $('#moreFact').onclick = () => { $('#factText').textContent = nextFact(r); sfx.click(); };
     $('#zoomTo').onclick = () => { closeModal(); map.flyTo(r); };
     const hi = $('#sayHi'); if (hi) hi.onclick = () => sayHello(r);
@@ -796,7 +749,7 @@
     const body = cardHTML(r, fact, featName);
     const e = S.own[r];
     let btns = '';
-    if (opts.study) btns = `<div class="study-note">📖 Study time! Read this card (or tap 🔊 Read aloud). The answers to your questions are here.</div><button class="btn ghost" data-close>Choose another place</button><button class="btn go" id="act">I’m ready! Try again ⚔️</button>`;
+    if (opts.study) btns = `<div class="study-note">📖 Study time! Read this card. The answers to your questions are here.</div><button class="btn ghost" data-close>Choose another place</button><button class="btn go" id="act">I’m ready! Try again ⚔️</button>`;
     else if (S.phase === 'pick') btns = `<button class="btn ghost" data-close>Keep looking</button><button class="btn go" id="act">Play as ${esc(nameOf(r))}!</button>`;
     else if (S.phase === 'play') {
       if (e === S.player) btns = `<button class="btn gold" data-close>Close</button>`;
@@ -892,7 +845,7 @@
     animal(r) {
       const ans = nature(r).animal; const opts = [ans];
       for (const [a, range] of shuffle(window.NATURE.POOL)) { if (a !== ans && !ans.includes(a) && !livesIn(range, r)) opts.push(a); if (opts.length === 4) break; }
-      return { q: `Which animal lives in ${nameOf(r)}?`, opts: shuffle(opts), ans, explain: `The ${ans} lives in ${nameOf(r)}!` };
+      return { pics: true, q: `Which animal lives in ${nameOf(r)}?`, opts: shuffle(opts), ans, explain: `The ${ans} lives in ${nameOf(r)}!` };
     },
     land(r) {
       const n = nature(r);
@@ -900,7 +853,7 @@
       if (!n.lands.length || wrong.length < 2) return Qs.animal(r);
       const ans = LANDS[n.lands[0]][1];
       const also = n.lands.slice(1).map((k) => LANDS[k][0]);
-      return { q: `What kind of land is ${nameOf(r)} known for?`, opts: shuffle([ans, ...wrong.map((k) => LANDS[k][1])]), ans,
+      return { pics: true, q: `What kind of land is ${nameOf(r)} known for?`, opts: shuffle([ans, ...wrong.map((k) => LANDS[k][1])]), ans,
         explain: `${nameOf(r)} is known for its ${LANDS[n.lands[0]][0]}${also.length ? `, and it also has ${also.join(', ')}` : ''}.` };
     },
     continent(r) {
@@ -1033,7 +986,7 @@
     stopAllSounds(); stopSpeech(); // no leftover sounds when a new battle opens
     const B = { enemy, clicked, attempt, m8: 4 }; // every try starts at 50/50
     setOdds(B);
-    const growth = attempt ? `<p class="center growth">🌱 You studied and came back. You’ve got this!</p>` : '';
+    const growth = attempt ? `<p class="center growth">🌱 You came back to try again. You’ve got this!</p>` : '';
     openModal(`<h3 class="mtitle">${attempt ? `💪 Try again! (round ${attempt + 1})` : '⚔️ Battle!'}</h3>${versusHTML(enemy)}${growth}<div id="wheelBox"></div><div id="stage"></div>`, { noClose: true });
     card.insertAdjacentHTML('afterbegin', '<span data-lock></span>');
     drawWheel(B);
@@ -1046,7 +999,7 @@
     const Q = qs[i];
     $('#stage').innerHTML = `<p class="center small">🧠 <b>Question ${i + 1} of 2</b> — ${i === 0 ? 'right answers raise your chance of winning! (Hint: the answers are on the card you just read.)' : 'one more chance to raise your odds!'}</p>
       <div class="quiz-q">${esc(Q.q)}</div>${Q.img ? `<img class="quiz-flag" src="${Q.img}" alt="A flag">` : ''}
-      <div class="quiz-opts">${Q.opts.map((o, k) => `<button data-k="${k}">${Q.kind === 'flag' ? `<img src="${M.flag(o)}" alt="A flag">` : esc(o)}</button>`).join('')}</div>
+      <div class="quiz-opts">${Q.opts.map((o, k) => `<button data-k="${k}">${Q.kind === 'flag' ? `<img src="${M.flag(o)}" alt="A flag">` : Q.pics ? `${pic(o, 'opt-pic')}<span>${esc(o)}</span>` : esc(o)}</button>`).join('')}</div>
       <div id="qres"></div>`;
     const btns = card.querySelectorAll('.quiz-opts button');
     btns.forEach((b) => b.onclick = () => {
@@ -1055,6 +1008,7 @@
       if (!right) b.classList.add('wrong');
       right ? sfx.right() : sfx.wrong();
       B.m8 += (i === 0 ? 2 : 1) * (right ? 1 : -1); setOdds(B);
+      B.asked = (B.asked || 0) + 1; if (!right) B.missed = (B.missed || 0) + 1;
       drawWheel(B, true);
       const fact = Q.explain;
       $('#qres').innerHTML = `<div class="odds">${right ? `✅ Correct! ${esc(fact)}<br>Your chance grows to ${odds(B.mine, B.total)}!`
@@ -1110,12 +1064,19 @@
       }
       S.log.push(['retry', enemy, lostPlace]); save(); sfx.lose();
       const what = lostPlace ? `${esc(nameOf(enemy))} took ${esc(nameOf(lostPlace))} from you.` : 'Your land is safe.';
+      // Say what actually happened: a missed question is something to learn from; a perfect quiz that still lost is just luck.
+      const perfect = B.asked && !B.missed;
+      const why = perfect ? `You answered every question right. 🌟 The wheel just didn’t land your way.`
+        : !B.asked ? `The wheel didn’t land your way.`
+        : `🌱 Study ${esc(nameOf(B.clicked))}’s card and try again.`;
       out.innerHTML = `<div class="result lose">Not this time.</div>
-        <p class="center">It’s okay to feel disappointed. ${what}<br>🌱 Let’s learn from it and try again. Study ${esc(nameOf(B.clicked))}’s card, then give it another go.</p>
-        <div class="btn-row"><button class="btn ghost" id="retreat">Choose another place</button><button class="btn go" id="study">📖 Study &amp; try again</button></div>`;
+        <p class="center">It’s okay to feel disappointed. ${what}<br>${why}</p>
+        <div class="btn-row"><button class="btn ghost" id="retreat">Choose another place</button>${perfect || !B.asked
+          ? `<button class="btn go" id="again">${B.asked ? '🧠 Earn another try' : '⚔️ Try again'}</button>` : '<button class="btn go" id="study">📖 Study &amp; try again</button>'}</div>`;
       const after = () => { if (lostPlace) { refresh(); map.pulse([lostPlace]); } };
       $('#retreat').onclick = () => { closeModal(); after(); banner('No problem! Pick any place to challenge. 🌍', 3500); };
-      $('#study').onclick = () => { closeModal(); after(); onRegionClick(B.clicked, null, { study: { enemy, attempt: B.attempt + 1 } }); };
+      if ($('#study')) $('#study').onclick = () => { closeModal(); after(); onRegionClick(B.clicked, null, { study: { enemy, attempt: B.attempt + 1 } }); };
+      if ($('#again')) $('#again').onclick = () => { closeModal(); after(); startBattle(enemy, B.clicked, B.attempt + 1); };
     }
   }
 

@@ -41,6 +41,7 @@ GitHub has no limit on the number of public repositories, and each one can have 
 - `data/`: maps, cities, rivers, mountains, plus the fact cards (`info-*.js`) famous places & traditions (`extras.js`) and animals & land types (`nature.js`), which are easy to edit
 - `js/config.js`: put your PayPal or Square link here to show the **Support Lyman Learning** button
 - `flags/`: country flags; `flags/us/`: state flags
+- `pics/`: photos of animals, state birds, state flowers and types of land (Wikimedia Commons; see Photo credits in the game)
 - `vendor/`: D3 and TopoJSON libraries
 
 ## Credits

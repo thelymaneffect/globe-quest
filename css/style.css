@@ -239,3 +239,12 @@ p.center{text-align:center}
 @media (max-width:520px){.stakes-row{grid-template-columns:1fr}}
 .quiz-flag{display:block;margin:0 auto 12px;height:90px;max-width:100%;border-radius:6px;box-shadow:0 2px 8px rgba(0,0,0,.2)}
 .request-btn{background:var(--blue);color:#fff;box-shadow:0 4px 0 #1f4c99}
+/* pictures next to the words */
+.facts li.with-pic{align-items:center}
+.facts li.with-pic > div{flex:1}
+.pic{width:78px;height:62px;object-fit:cover;border-radius:10px;box-shadow:0 1px 4px rgba(0,0,0,.2);flex:0 0 78px;background:#eee}
+.land-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(86px,1fr));gap:8px;margin-top:6px}
+.land-grid figure{margin:0;text-align:center;font-size:12px;font-weight:700}
+.land-pic{width:100%;height:58px;object-fit:cover;border-radius:8px;display:block;background:#eee}
+.quiz-opts button .opt-pic{display:block;width:100%;height:78px;object-fit:cover;border-radius:8px;margin-bottom:6px}
+.credits{font-size:13px;line-height:1.5;padding-left:18px;max-height:50vh;overflow-y:auto}
