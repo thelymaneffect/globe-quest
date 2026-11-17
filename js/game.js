@@ -282,7 +282,7 @@
   /* ================= SUPPORT & GAME REQUESTS ================= */
   const cfg = () => window.LYMAN_CONFIG || {};
   function supportHTML() {
-    return `<div class="support"><p>These games are free, with no ads.</p>
+    return `<div class="support"><p>These games are free, with no ads. Your support helps us create more games and give your family even more ways to learn and play!</p>
       <div class="support-row"><button class="btn support-btn" data-support>💛 Support us</button><button class="btn ghost" data-request>💡 Request a game</button></div></div>`;
   }
   function showSupport() {
