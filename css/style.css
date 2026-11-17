@@ -238,3 +238,4 @@ p.center{text-align:center}
 .record{background:#fff6dc;border-radius:12px;padding:8px 12px;font-weight:800}
 @media (max-width:520px){.stakes-row{grid-template-columns:1fr}}
 .quiz-flag{display:block;margin:0 auto 12px;height:90px;max-width:100%;border-radius:6px;box-shadow:0 2px 8px rgba(0,0,0,.2)}
+.request-btn{background:var(--blue);color:#fff;box-shadow:0 4px 0 #1f4c99}

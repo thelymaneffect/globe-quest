@@ -283,7 +283,7 @@
   const cfg = () => window.LYMAN_CONFIG || {};
   function supportHTML() {
     return `<div class="support"><p>These games are free, with no ads. Your support helps us create more games and give your family even more ways to learn and play!</p>
-      <div class="support-row"><button class="btn support-btn" data-support>💛 Support us</button><button class="btn ghost" data-request>💡 Request a game</button></div></div>`;
+      <div class="support-row"><button class="btn support-btn" data-support>💛 Support us</button><button class="btn request-btn" data-request>💡 Request a game</button></div></div>`;
   }
   function showSupport() {
     const c = cfg();
@@ -723,7 +723,7 @@
     rows += `<li><span class="ico">📏</span><div><b>Size</b>${sizeLine(r)}</div></li>`;
     return `<img class="flag-big" src="${M.flag(r)}" alt="Flag of ${esc(I[0])}">
       <div class="cname">${esc(I[0])}</div>
-      ${us ? `<div class="sub">⭐ Capital: ${esc(I[1])}<span class="langs">🧭 Region: <b>${esc(continentOf(r))}</b>${whereLine(r)}</span></div>` : `<div class="sub">⭐ Capital: ${esc(I[1])}<span class="langs">🌎 Continent: <b>${esc(TWO_CONTINENTS[r] ? TWO_CONTINENTS[r].join(' & ') : continentOf(r))}</b></span>${whereLine(r, true) ? `<span class="langs">🧭 ${whereLine(r, true)}</span>` : ''}<span class="langs">🗣️ Language: <b>${esc(I[2])}</b>${I[3] ? `<br><span class="also">Also spoken: ${esc(I[3])}</span>` : ''}</span></div>`}
+      ${us ? `<div class="sub">📮 Abbreviation: <b>${r}</b><br>⭐ Capital: ${esc(I[1])}<span class="langs">🧭 Region: <b>${esc(continentOf(r))}</b>${whereLine(r)}</span></div>` : `<div class="sub">⭐ Capital: ${esc(I[1])}<span class="langs">🌎 Continent: <b>${esc(TWO_CONTINENTS[r] ? TWO_CONTINENTS[r].join(' & ') : continentOf(r))}</b></span>${whereLine(r, true) ? `<span class="langs">🧭 ${whereLine(r, true)}</span>` : ''}<span class="langs">🗣️ Language: <b>${esc(I[2])}</b>${I[3] ? `<br><span class="also">Also spoken: ${esc(I[3])}</span>` : ''}</span></div>`}
       ${status}
       <div class="didyou" id="factBox"><b>💡 Did you know?</b><span id="factText">${esc(fact)}</span></div>
       <div class="card-tools"><button class="chip" id="readAloud">🔊 Read aloud</button><button class="chip" id="moreFact">🔀 Another fact</button><button class="chip" id="zoomTo">🔎 Zoom to it</button></div>
@@ -739,6 +739,7 @@
     const L = [];
     L.push({ text: `Welcome to ${name}!` });
     if (us) {
+      L.push({ text: `Its abbreviation is ${r.split('').join(' ')}.` });
       L.push({ text: `The capital is ${I[1]}.` });
       L.push({ text: `Its nickname is ${I[2].replace(/^The /, 'the ')}.` });
       L.push({ text: `${name} became the ${ordinal(I[4])} state in ${I[3]}.` });
@@ -1030,9 +1031,9 @@
   function setOdds(B) { B.m8 = Math.max(1, Math.min(7, B.m8)); const g = gcd(B.m8, 8); B.mine = B.m8 / g; B.total = 8 / g; }
   function startBattle(enemy, clicked, attempt = 0) {
     stopAllSounds(); stopSpeech(); // no leftover sounds when a new battle opens
-    const B = { enemy, clicked, attempt, m8: 4 + Math.min(2, attempt) };
+    const B = { enemy, clicked, attempt, m8: 4 }; // every try starts at 50/50
     setOdds(B);
-    const growth = attempt ? `<p class="center growth">🌱 You studied and came back — your chance starts at <b>${pct(B.mine, B.total)}</b> this time!</p>` : '';
+    const growth = attempt ? `<p class="center growth">🌱 You studied and came back. You’ve got this!</p>` : '';
     openModal(`<h3 class="mtitle">${attempt ? `💪 Try again! (round ${attempt + 1})` : '⚔️ Battle!'}</h3>${versusHTML(enemy)}${growth}<div id="wheelBox"></div><div id="stage"></div>`, { noClose: true });
     card.insertAdjacentHTML('afterbegin', '<span data-lock></span>');
     drawWheel(B);
@@ -1108,10 +1109,9 @@
         if (lostPlace) { S.own[lostPlace] = enemy; S.recent = recent.filter((r) => r !== lostPlace); }
       }
       S.log.push(['retry', enemy, lostPlace]); save(); sfx.lose();
-      const next = Math.min(2, B.attempt + 1), nextPct = pct((4 + next) / gcd(4 + next, 8), 8 / gcd(4 + next, 8));
       const what = lostPlace ? `${esc(nameOf(enemy))} took ${esc(nameOf(lostPlace))} from you.` : 'Your land is safe.';
       out.innerHTML = `<div class="result lose">Not this time.</div>
-        <p class="center">It’s okay to feel disappointed. ${what}<br>🌱 Let’s learn from it and try again. Study ${esc(nameOf(B.clicked))}’s card — next time your wheel starts at <b>${nextPct}</b>.</p>
+        <p class="center">It’s okay to feel disappointed. ${what}<br>🌱 Let’s learn from it and try again. Study ${esc(nameOf(B.clicked))}’s card, then give it another go.</p>
         <div class="btn-row"><button class="btn ghost" id="retreat">Choose another place</button><button class="btn go" id="study">📖 Study &amp; try again</button></div>`;
       const after = () => { if (lostPlace) { refresh(); map.pulse([lostPlace]); } };
       $('#retreat').onclick = () => { closeModal(); after(); banner('No problem! Pick any place to challenge. 🌍', 3500); };

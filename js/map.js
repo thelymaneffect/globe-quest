@@ -64,7 +64,7 @@
       this.sphere = { type: 'Sphere' };
       this.graticule = d3.geoGraticule10();
       this.empireMesh = null;
-      this._sortedForLabels = null; // forget the previous mode's name list
+      this._sortedForLabels = null; this._lakesBySize = null; // forget the previous mode's lists
       this.resize();
       this.resetView(false);
     }
@@ -428,11 +428,11 @@
         if (plan && plan.hide) continue;
         const sizePx = Math.sqrt(plan && plan.area ? plan.area : f.area) * scale;
         let name = plan && plan.text ? plan.text : (this.labelName ? this.labelName(f.o) : f.nm);
-        let fsz = Math.max(13, Math.min(24, sizePx / 7));
+        let fsz = this.mode === 'us' ? 14 : Math.max(13, Math.min(24, sizePx / 7)); // every state name the same size
         ctx.font = `800 ${fsz}px Nunito, sans-serif`;
         let tw = ctx.measureText(name).width;
         if (sizePx < tw * 0.9) { // doesn't fit: try a smaller size, then the short name (e.g. "RI")
-          fsz = 12; ctx.font = `800 ${fsz}px Nunito, sans-serif`; tw = ctx.measureText(name).width;
+          if (this.mode !== 'us') { fsz = 12; ctx.font = `800 ${fsz}px Nunito, sans-serif`; tw = ctx.measureText(name).width; }
           if (sizePx < tw * 0.9) {
             const short = !(plan && plan.text) && this.labelShort ? this.labelShort(f.o) : null;
             if (!short) continue;
@@ -444,6 +444,23 @@
         if (!tryLabel(s[0], s[1], tw, fsz)) continue;
         seen.add(f.o);
         text(name, s[0], s[1], `800 ${fsz}px Nunito, sans-serif`, COL.label, 3.5);
+      }
+      // lake names — biggest lakes first, and only lakes big enough on screen for their name
+      if (this.detail) {
+        const lakes = this._lakesBySize || (this._lakesBySize = this.detail.lakes.features.filter((l) => l.properties.n)
+          .map((l) => { l._a = d3.geoArea(l); l._c = d3.geoCentroid(largestPolygon(l)); return l; }).sort((a, b) => b._a - a._a));
+        for (const l of lakes) {
+          const nm = l.properties.n, px = Math.sqrt(l._a) * scale;
+          ctx.font = 'italic 700 10px Nunito, sans-serif'; const tw = ctx.measureText(nm).width;
+          if (px < tw * 0.75) continue; // too small on screen for its name
+          const s = this._toScreen(l._c); if (!s || s[0] < 0 || s[1] < 0 || s[0] > this.w || s[1] > this.h) continue;
+          // long, narrow lakes (like Lake Michigan): slide the name up or down inside the lake to find room
+          for (const dy of [0, -14, 14, -28, 28]) {
+            const y = s[1] + dy;
+            if (dy && !(this._invert(s[0], y) && d3.geoContains(l, this._invert(s[0], y)))) continue;
+            if (tryLabel(s[0], y, tw, 12)) { text(nm, s[0], y, 'italic 700 10px Nunito, sans-serif', '#2a6ea8'); break; }
+          }
+        }
       }
       // 0) oceans and seas
       for (const [name, lon, lat, major] of WATERS) {
@@ -471,16 +488,6 @@
       drawPlaces(false);
       if (this.detail) {
         // mountains, deserts, plateaus
-        // lake names (big lakes first)
-        if (eff >= 1.5) {
-          for (const l of this.detail.lakes.features) {
-            const nm = l.properties.n; if (!nm) continue;
-            const a = (l._a = l._a || d3.geoArea(l)) * scale * scale; if (a < 250) continue;
-            const s = this._toScreen(l._c = l._c || d3.geoCentroid(l)); if (!s || s[0] < 0 || s[1] < 0 || s[0] > this.w || s[1] > this.h) continue;
-            ctx.font = 'italic 700 10px Nunito, sans-serif'; const tw = ctx.measureText(nm).width;
-            if (tryLabel(s[0], s[1], tw, 12)) text(nm, s[0], s[1], 'italic 700 10px Nunito, sans-serif', '#2a6ea8');
-          }
-        }
         if (eff >= 1.6) {
           for (const [name, lon, lat, t, rank] of this.detail.features) {
             if (rank > eff + 0.6) continue;
@@ -494,15 +501,18 @@
         }
         // river names
         if (eff >= 2.4) {
-          let n = 0;
+          let n = 0; const named = new Set();
           for (const r of this.detail.rivers.features) {
-            if (!r.properties.n || r.properties.r > eff * 1.1) continue;
+            if (!r.properties.n || r.properties.r > eff * 1.1 || /^Lake /.test(r.properties.n)) continue;
+            const rname = /\b(River|Rio|Río|Canal|Creek)\b/i.test(r.properties.n) ? r.properties.n : r.properties.n + ' River';
+            if (named.has(rname)) continue;
             const cs = r.geometry.type === 'LineString' ? r.geometry.coordinates : r.geometry.coordinates[0];
             if (!cs || cs.length < 2) continue;
             const mid = cs[(cs.length / 2) | 0]; const s = this._toScreen(mid);
             if (!s || s[0] < 0 || s[1] < 0 || s[0] > this.w || s[1] > this.h) continue;
-            const nm = r.properties.n; ctx.font = 'italic 700 10px Nunito, sans-serif';
+            const nm = rname; ctx.font = 'italic 700 10px Nunito, sans-serif';
             const tw = ctx.measureText(nm).width; if (!tryLabel(s[0], s[1], tw, 12)) continue;
+            named.add(rname);
             text(nm, s[0], s[1], 'italic 700 10px Nunito, sans-serif', '#2a6ea8');
             if (++n > 40) break;
           }
