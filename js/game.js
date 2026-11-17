@@ -1018,7 +1018,7 @@
       save(); sfx.win(); confetti(80);
       const done = regionsOf(S.player).length === regions.length;
       out.innerHTML = `<div class="result win">${B.attempt ? '💪 What a comeback! You win!' : '🎉 The wheel landed on YOU! You win!'}</div>
-        <p class="center">${B.attempt ? 'You learned, tried again, and grew stronger. ' : ''}You take over ${taken.length > 1 ? `all ${taken.length} ${M.units} of ${esc(nameOf(enemy))}’s empire` : esc(nameOf(enemy))}!</p>
+        <p class="center">${B.attempt ? 'You studied, tried again, and came back stronger! ' : ''}You take over ${taken.length > 1 ? `all ${taken.length} ${M.units} of ${esc(nameOf(enemy))}’s empire` : esc(nameOf(enemy))}!</p>
         <div class="btn-row"><button class="btn go" id="resOk">${done ? '🏆 See your victory!' : 'Keep conquering! ⚔️'}</button></div>`;
       $('#resOk').onclick = () => {
         closeModal(); refresh(); map.pulse(taken);
