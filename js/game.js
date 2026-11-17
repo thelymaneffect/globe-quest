@@ -31,7 +31,7 @@
       flag: (c) => `flags/us/${window.INFO_US[c][0].toLowerCase().replace(/ /g, '-')}.svg`
     }
   };
-  const DETAIL_SCRIPTS = ['data/places.js', 'data/rivers.js', 'data/lakes.js', 'data/features.js'];
+  const DETAIL_SCRIPTS = ['data/places.js', 'data/cities.js', 'data/rivers.js', 'data/lakes.js', 'data/features.js'];
 
   let settings = Object.assign({ sound: true, view: '2d', legendOpen: window.innerWidth > 900 }, store.get(SET_KEY) || {});
   if (!Array.isArray(settings.cats)) settings.cats = settings.level === 'off' || settings.boost === false ? [] : ['capitals', 'landmarks', 'geography'];
@@ -142,7 +142,7 @@
     modal.hidden = false; modalOnClose = opts.onClose || null; card.scrollTop = 0;
     card.querySelectorAll('[data-close]').forEach((b) => b.addEventListener('click', closeModal));
   }
-  function closeModal() { modal.hidden = true; card.innerHTML = ''; stopSpeech(); stopAllSounds(); const f = modalOnClose; modalOnClose = null; f && f(); }
+  function closeModal() { modal.hidden = true; card.innerHTML = ''; stopSpeech(); stopAllSounds(); if (window.__pendingUpdate) { location.reload(); return; } const f = modalOnClose; modalOnClose = null; f && f(); }
   modal.addEventListener('click', (e) => { if (e.target === modal && !card.querySelector('[data-lock]')) closeModal(); });
   document.addEventListener('keydown', (e) => { if (e.key === 'Escape' && !modal.hidden && !card.querySelector('[data-lock]')) closeModal(); });
 
@@ -425,7 +425,10 @@
           return lines.some((l) => l.some((pt, i) => i % 6 === 0 && inUS(pt)));
         }) };
       }
-      map.detail = { places: window.PLACES.filter((p) => (key === 'us' ? p[5] === 'US' : true)), rivers, lakes: window.LAKES, features };
+      // stars = capitals; dots = the top 5 popular cities of each place (skipping any that already has a star)
+      const stars = window.PLACES.filter((p) => (key === 'us' ? p[5] === 'US' && p[3] >= 1 : p[3] === 2));
+      const cities = (window.CITIES[key] || []).filter((c) => !stars.some((st) => Math.abs(st[1] - c[1]) < 0.12 && Math.abs(st[2] - c[2]) < 0.12));
+      map.detail = { places: stars, cities, rivers, lakes: window.LAKES, features };
       map.draw();
     }).catch(() => { /* details are optional */ });
     if (S.phase === 'pick') introPick();
@@ -465,6 +468,16 @@
   }
   const shortName = (c) => nameOf(c).replace(/ \(.*\)$/, '');
   const mainArea = (c) => { const fs = map.byRegion.get(c) || []; const f = fs.find((x) => x.id === c) || fs[0]; return f ? f.area : 0; };
+  // middle of a group of places joined into one shape (uses the biggest piece, so islands don't pull it into the sea)
+  function groupCenter(group) {
+    try {
+      const obj = map.topo.objects[map.objName];
+      const merged = topojson.merge(map.topo, obj.geometries.filter((g) => group.includes(g.properties.o)));
+      let best = null, ba = -1;
+      for (const poly of merged.coordinates) { const f = { type: 'Polygon', coordinates: poly }; const a = d3.geoArea(f); if (a > ba) { ba = a; best = f; } }
+      return best ? d3.geoCentroid(best) : null;
+    } catch (e) { return null; }
+  }
   function computeLabelPlan() {
     labelPlan = {};
     const byEmpire = new Map();
@@ -479,7 +492,8 @@
         if (group.length === 1 && group[0] === e) continue; // the home place on its own: normal label
         const anchor = group.includes(e) ? e : group.reduce((a, b) => (mainArea(b) > mainArea(a) ? b : a));
         const area = group.reduce((sum, c) => sum + mainArea(c), 0);
-        for (const c of group) labelPlan[c] = c === anchor ? { text: shortName(e), area } : { hide: true };
+        const at = groupCenter(group); // the name sits in the middle of the whole combined territory
+        for (const c of group) labelPlan[c] = c === anchor ? { text: shortName(e), area, at } : { hide: true };
       }
     }
   }
@@ -1099,7 +1113,19 @@
     clearTimeout(offlineTimer); offlineTimer = offlineReady ? null : setTimeout(() => { offlineTimer = null; updateOfflineBadge(); }, 1500);
   }
   if ('serviceWorker' in navigator && location.protocol !== 'file:') {
-    window.addEventListener('load', () => navigator.serviceWorker.register('sw.js').catch(() => { /* offline mode unavailable */ }).finally(updateOfflineBadge));
+    // When a new version of the game is published, the app downloads it in the background and then
+    // reloads itself once — right away if nothing is in progress, otherwise as soon as the popup closes.
+    const hadController = !!navigator.serviceWorker.controller;
+    let reloading = false;
+    window.__pendingUpdate = false;
+    const applyUpdate = () => { if (reloading) return; reloading = true; location.reload(); };
+    navigator.serviceWorker.addEventListener('controllerchange', () => {
+      if (!hadController) return; // first install, nothing to refresh
+      if (modal.hidden) applyUpdate(); else window.__pendingUpdate = true;
+    });
+    window.addEventListener('load', () => navigator.serviceWorker.register('sw.js', { updateViaCache: 'none' })
+      .then((reg) => { reg.update().catch(() => {}); document.addEventListener('visibilitychange', () => { if (!document.hidden) reg.update().catch(() => {}); }); })
+      .catch(() => { /* offline mode unavailable */ }).finally(updateOfflineBadge));
   }
 
   /* ================= BOOT ================= */

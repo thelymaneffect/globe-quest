@@ -64,6 +64,7 @@
       this.sphere = { type: 'Sphere' };
       this.graticule = d3.geoGraticule10();
       this.empireMesh = null;
+      this._sortedForLabels = null; // forget the previous mode's name list
       this.resize();
       this.resetView(false);
     }
@@ -330,8 +331,9 @@
       }
       for (const [c, fs] of byColor) { ctx.beginPath(); for (const f of fs) path(f); ctx.fillStyle = c; ctx.fill(); }
       // lakes
-      if (this.detail && this.mode === 'world') {
+      if (this.detail) {
         ctx.beginPath(); for (const l of this.detail.lakes.features) path(l); ctx.fillStyle = COL.lake; ctx.fill();
+        ctx.strokeStyle = 'rgba(79,151,207,.6)'; ctx.lineWidth = lw * 0.6; ctx.stroke();
       }
       // Borders are only drawn between DIFFERENT empires. Once neighbors belong to the same empire,
       // the old border between them is erased. Recomputed whenever ownership changes.
@@ -356,8 +358,8 @@
         ctx.strokeStyle = COL.hover; ctx.lineWidth = lw * 3; ctx.stroke();
       }
       // rivers
-      if (this.detail && eff >= 2) {
-        const maxRank = Math.min(10, 2 + eff * 1.2);
+      if (this.detail && eff >= 1.4) {
+        const maxRank = Math.min(10, 1.5 + eff * 1.3);
         ctx.beginPath();
         for (const r of this.detail.rivers.features) if (r.properties.r <= maxRank) path(r);
         ctx.strokeStyle = COL.river; ctx.lineWidth = lw * (eff > 5 ? 1.4 : 1); ctx.stroke();
@@ -387,23 +389,32 @@
       const drawPlaces = (wantStars) => {
         if (!this.detail) return;
         const showCap = this.mode === 'us' ? eff >= 5.5 : eff >= 2.2;
-        const showCity = this.mode === 'us' ? eff >= 8 : eff >= 3.5;
+        const showCity = this.mode === 'us' ? eff >= 5.5 : eff >= 2.6;
         if (wantStars ? !showCap : !showCity) return;
-        for (const p of this.detail.places) {
-          const [name, lon, lat, cap, rank] = p;
-          const isStar = this.mode === 'us' ? cap >= 1 : cap === 2;
-          if (isStar !== wantStars) continue;
-          if (!isStar && rank > (this.mode === 'us' ? eff * 0.7 : eff * 1.3 - 1)) continue;
+        // how many of each place's top-5 cities to show at this zoom
+        const topN = this.mode === 'us' ? (eff >= 9 ? 5 : eff >= 7 ? 3 : 2) : (eff >= 5 ? 5 : eff >= 3.6 ? 3 : 2);
+        const list = wantStars ? this.detail.places.map((p) => [p[0], p[1], p[2], p[3]])
+          : this.detail.cities.filter((c) => c[3] <= topN).map((c) => [c[0], c[1], c[2], 0]);
+        for (const p of list) {
+          const [name, lon, lat, cap] = p;
+          const isStar = wantStars;
           const s = this._toScreen([lon, lat]); if (!s || s[0] < -20 || s[1] < -20 || s[0] > this.w + 20 || s[1] > this.h + 20) continue;
           const fs = isStar ? 14 : 11;
           ctx.font = `${isStar ? 800 : 700} ${fs}px Nunito, sans-serif`;
           const tw = ctx.measureText(name).width;
-          if (!tryLabel(s[0] + tw / 2 + 9, s[1], tw + 12, fs + 2)) continue;
+          // name goes right, left, below or above the marker — wherever it fits
+          const spots = [[s[0] + tw / 2 + 9, s[1], 'left', s[0] + 9, s[1]], [s[0] - tw / 2 - 9, s[1], 'right', s[0] - 9, s[1]],
+            [s[0], s[1] + fs, 'center', s[0], s[1] + fs], [s[0], s[1] - fs, 'center', s[0], s[1] - fs]];
+          const spot = spots.find((sp) => tryLabel(sp[0], sp[1], tw + 12, fs + 2));
+          // zoomed in close, every marker shows even without room for its name; zoomed out, only labeled ones (keeps the map tidy)
+          const close = this.mode === 'us' ? eff >= 9 : eff >= 4.5;
+          if (!spot && !close) continue;
           if (isStar) this._star(ctx, s[0], s[1], cap === 2 ? 7 : 6, '#d62828');
-          else { ctx.beginPath(); ctx.arc(s[0], s[1], 3, 0, 7); ctx.fillStyle = '#111'; ctx.fill(); }
-          ctx.textAlign = 'left'; ctx.font = `${isStar ? 800 : 700} ${fs}px Nunito, sans-serif`;
+          else { ctx.beginPath(); ctx.arc(s[0], s[1], 3.2, 0, 7); ctx.fillStyle = '#111'; ctx.fill(); ctx.lineWidth = 1.2; ctx.strokeStyle = '#fff'; ctx.stroke(); }
+          if (!spot) continue;
+          ctx.textAlign = spot[2]; ctx.font = `${isStar ? 800 : 700} ${fs}px Nunito, sans-serif`;
           ctx.strokeStyle = COL.halo; ctx.lineWidth = 3; ctx.lineJoin = 'round';
-          ctx.strokeText(name, s[0] + 9, s[1]); ctx.fillStyle = '#1d2a3a'; ctx.fillText(name, s[0] + 9, s[1]);
+          ctx.strokeText(name, spot[3], spot[4]); ctx.fillStyle = '#1d2a3a'; ctx.fillText(name, spot[3], spot[4]);
         }
       };
       // 0) oceans and seas
@@ -453,9 +464,19 @@
       drawPlaces(false);
       if (this.detail) {
         // mountains, deserts, plateaus
-        if (eff >= 2.5) {
+        // lake names (big lakes first)
+        if (eff >= 1.5) {
+          for (const l of this.detail.lakes.features) {
+            const nm = l.properties.n; if (!nm) continue;
+            const a = (l._a = l._a || d3.geoArea(l)) * scale * scale; if (a < 250) continue;
+            const s = this._toScreen(l._c = l._c || d3.geoCentroid(l)); if (!s || s[0] < 0 || s[1] < 0 || s[0] > this.w || s[1] > this.h) continue;
+            ctx.font = 'italic 700 11px Nunito, sans-serif'; const tw = ctx.measureText(nm).width;
+            if (tryLabel(s[0], s[1], tw, 13)) text(nm, s[0], s[1], 'italic 700 11px Nunito, sans-serif', '#2a6ea8');
+          }
+        }
+        if (eff >= 1.6) {
           for (const [name, lon, lat, t, rank] of this.detail.features) {
-            if (rank > eff + 0.5) continue;
+            if (rank > eff + 0.6) continue;
             const s = this._toScreen([lon, lat]); if (!s || s[0] < 0 || s[1] < 0 || s[0] > this.w || s[1] > this.h) continue;
             const label = t === 'm' ? '▲ ' + name : name;
             ctx.font = 'italic 700 12px Nunito, sans-serif';
@@ -465,10 +486,10 @@
           }
         }
         // river names
-        if (eff >= 4) {
+        if (eff >= 2.4) {
           let n = 0;
           for (const r of this.detail.rivers.features) {
-            if (!r.properties.n || r.properties.r > eff * 0.9) continue;
+            if (!r.properties.n || r.properties.r > eff * 1.1) continue;
             const cs = r.geometry.type === 'LineString' ? r.geometry.coordinates : r.geometry.coordinates[0];
             if (!cs || cs.length < 2) continue;
             const mid = cs[(cs.length / 2) | 0]; const s = this._toScreen(mid);
