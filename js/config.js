@@ -1,5 +1,8 @@
 /* Lyman Learning site settings — safe to edit by hand. */
 window.LYMAN_CONFIG = {
+  // Footer: "Created by The Lyman Effect, LLC" links here (leave empty for plain text)
+  companyUrl: 'https://www.thelymaneffect.com',
+
   // Support buttons. A button only shows when its link is filled in.
   paypalUrl: 'https://www.paypal.com/ncp/payment/D6TTAFWTWSSE4',
   squareUrl: 'https://square.link/u/OaTtvFIY',

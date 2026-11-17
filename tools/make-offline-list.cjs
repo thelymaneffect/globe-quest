@@ -3,7 +3,7 @@
 // Run it (and bump VERSION) whenever you add, remove or change files.
 const fs = require('fs'), path = require('path');
 process.chdir(path.resolve(__dirname, '..'));
-const VERSION = 'lyman-wd-v17';
+const VERSION = 'lyman-wd-v18';
 const walk = (d) => fs.readdirSync(d, { withFileTypes: true }).flatMap((e) => e.isDirectory() ? walk(path.join(d, e.name)) : [path.join(d, e.name)]);
 const files = ['./', 'index.html', 'manifest.webmanifest',
   ...['css', 'js', 'vendor', 'data', 'flags', 'icons', 'fonts', 'pics'].flatMap(walk)]

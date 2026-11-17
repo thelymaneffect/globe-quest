@@ -354,6 +354,8 @@
     }
     renderLevelPicker($('#levelPick')); renderStakesPicker($('#stakesPick')); $('#setSound').checked = settings.sound;
     $('#supportTitle').innerHTML = supportHTML();
+    const url = (window.LYMAN_CONFIG || {}).companyUrl;
+    $('#siteFooter').innerHTML = `Created by ${url ? `<a href="${esc(url)}" target="_blank" rel="noopener">The Lyman Effect, LLC</a>` : 'The Lyman Effect, LLC'}`;
   }
   document.querySelectorAll('.mode-card[data-mode]').forEach((b) => b.addEventListener('click', () => {
     const k = b.dataset.mode; sfx.click();

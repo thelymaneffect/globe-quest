@@ -248,3 +248,5 @@ p.center{text-align:center}
 .land-pic{width:100%;height:58px;object-fit:cover;border-radius:8px;display:block;background:#eee}
 .quiz-opts button .opt-pic{display:block;width:100%;height:78px;object-fit:cover;border-radius:8px;margin-bottom:6px}
 .credits{font-size:13px;line-height:1.5;padding-left:18px;max-height:50vh;overflow-y:auto}
+.site-footer{margin:30px auto 0;padding-top:14px;border-top:1px solid var(--line);font-size:14px;font-weight:700;color:var(--ink-soft);text-align:center;max-width:520px}
+.site-footer a{color:var(--blue)}
