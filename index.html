@@ -3,15 +3,19 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
-<title>Lyman Learning: World Domination</title>
+<title>Lyman Learning: Globe Quest</title>
 <meta name="description" content="A free geography game: pick a country, flip the coin, conquer the world — and learn capitals, languages, flags and fun facts along the way.">
+<link rel="icon" href="icons/favicon.ico" sizes="any">
+<link rel="icon" type="image/png" sizes="16x16" href="icons/favicon-16.png">
 <link rel="icon" type="image/png" sizes="32x32" href="icons/favicon-32.png">
+<link rel="icon" type="image/png" sizes="48x48" href="icons/favicon-48.png">
+<link rel="icon" type="image/png" sizes="192x192" href="icons/icon-192.png">
 <link rel="manifest" href="manifest.webmanifest">
-<link rel="apple-touch-icon" href="icons/apple-touch-icon.png">
+<link rel="apple-touch-icon" sizes="180x180" href="icons/apple-touch-icon.png">
 <meta name="theme-color" content="#1d2a3a">
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="mobile-web-app-capable" content="yes">
-<meta name="apple-mobile-web-app-title" content="World Domination">
+<meta name="apple-mobile-web-app-title" content="Globe Quest">
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
 <link rel="stylesheet" href="css/fonts.css">
 <link rel="stylesheet" href="css/style.css">
@@ -21,8 +25,8 @@
 <!-- ===== TITLE SCREEN ===== -->
 <section id="title" class="screen">
   <div class="title-inner">
-    <div class="brand">Lyman Learning</div>
-    <h1>World Domination<span>Geography Game</span></h1>
+    <img class="brand-logo" src="icons/lyman-learning-logo.png" width="1000" height="376" alt="Lyman Learning">
+    <h1>Globe Quest<span>Geography Game</span></h1>
     <p class="tagline">Pick a country. Spin the wheel. Conquer the map — and learn about every place you visit.</p>
 
     <div id="continueBox" class="continue-box"></div>
@@ -72,7 +76,7 @@
 
 <!-- ===== GAME ===== -->
 <header id="hud" hidden>
-  <button class="hud-brand" id="btnMenu" aria-label="Menu">☰ <span>Lyman Learning</span></button>
+  <button class="hud-brand" id="btnMenu" aria-label="Menu">☰ <img class="hud-logo" src="icons/lyman-learning-logo-light.png" width="1000" height="376" alt="Lyman Learning"><img class="hud-heart" src="icons/heart-96.png" width="96" height="96" alt=""></button>
   <div class="hud-status" id="hudStatus"></div>
   <div class="hud-actions">
     <div class="seg" role="group" aria-label="Map view">

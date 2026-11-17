@@ -1,6 +1,6 @@
 {
-  "name": "Lyman Learning: World Domination",
-  "short_name": "World Domination",
+  "name": "Lyman Learning: Globe Quest",
+  "short_name": "Globe Quest",
   "description": "A free geography game: pick a country, spin the wheel, conquer the map — and learn about every place you visit.",
   "start_url": "./",
   "scope": "./",

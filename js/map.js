@@ -1,4 +1,4 @@
-/* Lyman Learning: World Domination — map renderer (2D map + 3D globe on one canvas) */
+/* Lyman Learning: Globe Quest — map renderer (2D map + 3D globe on one canvas) */
 (function () {
   const R_KM = 6371;
   const COL = {
@@ -17,6 +17,10 @@
     ['Black Sea', 34, 43.3, 0], ['Caspian Sea', 50.5, 41.5, 0], ['North Sea', 3.5, 56, 0], ['Baltic Sea', 19.5, 57.5, 0], ['Sea of Japan', 135, 40, 0],
     ['Tasman Sea', 160, -38, 0], ['Gulf of Alaska', -145, 56.5, 0], ['Labrador Sea', -55, 59, 0], ['Philippine Sea', 133, 20, 0], ['Gulf of Guinea', 3, 1.5, 0]
   ];
+
+  // Small East Coast states: when their name won't fit inside, it goes out in the Atlantic with a pointer line.
+  const CALLOUTS = { NH: [-68.6, 43.0], VT: [-67.6, 44.0], MA: [-68.7, 41.9], RI: [-69.6, 40.9], CT: [-70.9, 40.3],
+    NJ: [-72.2, 39.5], DE: [-72.9, 38.6], MD: [-73.3, 37.7] };
 
   function largestPolygon(f) {
     const g = f.geometry; if (!g) return null;
@@ -86,7 +90,7 @@
       this.canvas.width = this.w * this.dpr; this.canvas.height = this.h * this.dpr;
       this._buildProjections();
       this.zoom.extent([[0, 0], [this.w, this.h]]);
-      if (this.view === '2d') this.zoom.translateExtent([[0, 0], [this.w, this.h]]);
+      if (this.view === '2d') this.zoom.translateExtent(this._extent2d());
       this.draw();
     }
 
@@ -104,9 +108,17 @@
       this.p3 = d3.geoOrthographic().clipAngle(90).precision(0.4).translate([this.w / 2, this.h / 2]);
     }
 
+    // the flat map can only be dragged as far as the map's own edges (never off into empty space)
+    _extent2d() {
+      if (!this.p2) return [[0, 0], [this.w, this.h]];
+      const path = d3.geoPath(this.p2);
+      const [[x0, y0], [x1, y1]] = this.mode === 'us' ? path.bounds({ type: 'FeatureCollection', features: this.features }) : path.bounds(this.sphere);
+      return [[Math.min(x0 - 10, 0), Math.min(y0 - 10, 0)], [Math.max(x1 + 10, this.w), Math.max(y1 + 10, this.h)]];
+    }
+
     setView(v) {
       this.view = v;
-      if (v === '2d') { this.zoom.translateExtent([[0, 0], [this.w, this.h]]).scaleExtent([1, 60]); }
+      if (v === '2d') { this.zoom.translateExtent(this._extent2d()).scaleExtent([1, 60]); }
       else { this.zoom.translateExtent([[-1e7, -1e7], [1e7, 1e7]]).scaleExtent([0.8, 60]); }
       this.resetView(false);
     }
@@ -293,7 +305,7 @@
       ctx.clearRect(0, 0, this.w, this.h);
       // background
       if (is2d) {
-        ctx.fillStyle = this.mode === 'us' ? '#cfe6f3' : '#e8f1f6'; ctx.fillRect(0, 0, this.w, this.h);
+        ctx.fillStyle = this.mode === 'us' ? '#cfe6f3' : '#b6d9ee'; ctx.fillRect(0, 0, this.w, this.h);
         ctx.setTransform(dpr * this.t.k, 0, 0, dpr * this.t.k, dpr * this.t.x, dpr * this.t.y);
       } else {
         ctx.fillStyle = '#0f1d33'; ctx.fillRect(0, 0, this.w, this.h);
@@ -431,6 +443,21 @@
         let fsz = 14; // every country and state name the same size (bigger than capitals 12, cities 10.5, landforms 10)
         ctx.font = `800 ${fsz}px Nunito, sans-serif`;
         let tw = ctx.measureText(name).width;
+        if (sizePx < tw * 0.9 && this.mode === 'us' && CALLOUTS[f.o]) { // pointer label out in the ocean
+          const from = this._toScreen(plan && plan.at ? plan.at : f.lp), to = this._toScreen(CALLOUTS[f.o]);
+          if (from && to) {
+            ctx.font = '800 12px Nunito, sans-serif'; const w2 = ctx.measureText(name).width;
+            if (tryLabel(to[0] + w2 / 2 + 4, to[1], w2 + 8, 14)) {
+              ctx.beginPath(); ctx.moveTo(from[0], from[1]); ctx.lineTo(to[0], to[1]);
+              ctx.strokeStyle = 'rgba(29,42,58,.65)'; ctx.lineWidth = 1.2; ctx.stroke();
+              ctx.beginPath(); ctx.arc(from[0], from[1], 2.5, 0, 7); ctx.fillStyle = '#1d2a3a'; ctx.fill();
+              ctx.textAlign = 'left'; ctx.textBaseline = 'middle'; ctx.lineJoin = 'round';
+              ctx.strokeStyle = COL.halo; ctx.lineWidth = 3.5; ctx.strokeText(name, to[0] + 4, to[1]);
+              ctx.fillStyle = COL.label; ctx.fillText(name, to[0] + 4, to[1]);
+              seen.add(f.o); continue;
+            }
+          }
+        }
         if (sizePx < tw * 0.9) { // doesn't fit: try a smaller size, then the short name (e.g. "RI")
           {
             const short = !(plan && plan.text) && this.labelShort ? this.labelShort(f.o) : null;

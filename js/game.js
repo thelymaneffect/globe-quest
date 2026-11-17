@@ -1,4 +1,4 @@
-/* Lyman Learning: World Domination Geography Game — game logic & UI */
+/* Lyman Learning: Globe Quest Geography Game — game logic & UI */
 (function () {
   'use strict';
   const $ = (s) => document.querySelector(s);
@@ -20,13 +20,13 @@
   const MODES = {
     world: {
       key: 'world', title: 'World Mode', unit: 'country', units: 'countries',
-      scripts: ['data/world.js', 'data/world-meta.js', 'data/info-africa.js', 'data/info-asia.js', 'data/info-europe.js', 'data/info-americas-oceania.js', 'data/extras.js', 'data/nature.js', 'data/pictures.js'],
+      scripts: ['data/world.js', 'data/world-meta.js', 'data/info-africa.js', 'data/info-asia.js', 'data/info-europe.js', 'data/info-americas-oceania.js', 'data/extras.js', 'data/nature.js', 'data/pictures.js', 'data/local-names.js', 'data/place-pics.js'],
       geo: () => window.GEO_WORLD, obj: 'countries', info: () => window.INFO,
       flag: (c) => `flags/${c.toLowerCase()}.svg`
     },
     us: {
       key: 'us', title: 'USA Mode', unit: 'state', units: 'states',
-      scripts: ['data/us.js', 'data/info-us.js', 'data/extras.js', 'data/nature.js', 'data/world.js', 'data/world-meta.js', 'data/flowers-us.js', 'data/pictures.js'],
+      scripts: ['data/us.js', 'data/info-us.js', 'data/extras.js', 'data/nature.js', 'data/world.js', 'data/world-meta.js', 'data/flowers-us.js', 'data/pictures.js', 'data/place-pics.js'],
       geo: () => window.GEO_US, obj: 'states', info: () => window.INFO_US,
       flag: (c) => `flags/us/${window.INFO_US[c][0].toLowerCase().replace(/ /g, '-')}.svg`
     }
@@ -104,6 +104,7 @@
 
   /* ---------------- helpers ---------------- */
   // a photo next to the words (always shown) — animals, birds, flowers and types of land
+  const placePic = (c, cls = 'pic') => { const f = window.PLACE_PICS && window.PLACE_PICS[(M && M.key === 'us' ? 'us:' : 'w:') + c]; return f ? `<img class="${cls}" src="${f}" alt="" loading="lazy">` : ''; };
   const pic = (name, cls = 'pic') => { const f = window.PICS && window.PICS[name]; return f ? `<img class="${cls}" src="${f}" alt="${String(name).replace(/"/g, '')}" loading="lazy">` : ''; };
   const info = (c) => M.info()[c];
   const nameOf = (c) => (info(c) ? info(c)[0] : c);
@@ -224,7 +225,7 @@
   const withThe = (s, re) => (/^(The|the|A|An) /.test(s) || /, the /.test(s) || !re.test(s) ? s : 'the ' + s);
   const forSpeech = (s) => String(s).replace(/\s*\(([^)]*)\)/g, ', $1,').replace(/,\s*,/g, ',').replace(/,\s*([.!?])/g, '$1').replace(/[“”]/g, '"').trim().replace(/,$/, '');
   // queue a list of lines: [{ text, mood: 'excited'|'question'|'calm', voice }]
-  let speechId = 0, onSpeechDone = null;
+  let speechId = 0, onSpeechDone = null, peekingMap = false;
   function speakLines(lines, defaultVoice, done) {
     if (!('speechSynthesis' in window)) return;
     stopSpeech(); const myId = ++speechId; onSpeechDone = done || null;
@@ -721,14 +722,14 @@
       rows += `<li><span class="ico">👨‍👩‍👧</span><div><b>Population</b>${fmtPop(I[5])} people</div></li>`;
     }
     const ex = extra(r);
-    if (ex[0]) rows += `<li><span class="ico">🏛️</span><div><b>Famous place</b>${esc(ex[0])}</div></li>`;
+    if (ex[0]) rows += `<li class="with-pic"><span class="ico">🏛️</span><div><b>Famous place</b>${esc(ex[0])}</div>${placePic(r)}</li>`;
     if (ex[1]) rows += `<li><span class="ico">🎉</span><div><b>Famous for</b>${esc(ex[1])}</div></li>`;
     const nat = nature(r);
     if (nat.animal) rows += `<li class="with-pic"><span class="ico">🐾</span><div><b>Animal that lives here</b>${esc(nat.animal)}</div>${pic(nat.animal)}</li>`;
     if (nat.lands.length) rows += `<li><span class="ico">🌿</span><div style="width:100%"><b>Types of land</b><div class="land-grid">${nat.lands.map((k) => `<figure>${pic(LANDS[k][1], 'land-pic')}<figcaption>${esc(LANDS[k][0])}</figcaption></figure>`).join('')}</div></div></li>`;
     rows += `<li><span class="ico">📏</span><div><b>Size</b>${sizeLine(r)}</div></li>`;
     return `<img class="flag-big" src="${M.flag(r)}" alt="Flag of ${esc(I[0])}">
-      <div class="cname">${esc(I[0])}</div>
+      <div class="cname">${esc(I[0])}</div>${sayRowHTML(r)}
       ${us ? `<div class="sub">📮 Abbreviation: <b>${r}</b><br>⭐ Capital: ${esc(I[1])}<span class="langs">🧭 Region: <b>${esc(continentOf(r))}</b>${whereLine(r)}</span></div>` : `<div class="sub">⭐ Capital: ${esc(I[1])}<span class="langs">🌎 Continent: <b>${esc(TWO_CONTINENTS[r] ? TWO_CONTINENTS[r].join(' & ') : continentOf(r))}</b></span>${whereLine(r, true) ? `<span class="langs">🧭 ${whereLine(r, true)}</span>` : ''}<span class="langs">🗣️ Language: <b>${esc(I[2])}</b>${I[3] ? `<br><span class="also">Also spoken: ${esc(I[3])}</span>` : ''}</span></div>`}
       ${status}
       <div class="didyou" id="factBox"><b>💡 Did you know?</b><span id="factText">${esc(fact)}</span></div>
@@ -737,14 +738,31 @@
 `;
   }
 
+  // 🔊 How to say the place's name: the English way (so kids are understood here) and the local way (how people say their own home)
+  const localName = (r) => (M.key === 'world' && window.LOCAL_NAMES ? window.LOCAL_NAMES[r] : null);
+  const localVoice = (L) => (L ? pickVoice([L[2], L[2].split('-')[0]], true) : null);
+  function sayRowHTML(r) {
+    const L = localName(r), nonLatin = L && /[^\u0000-\u024F\u1E00-\u1EFF’ʻʿʾ]/.test(L[1]);
+    const line = L ? `<div class="local-name">In ${esc(L[3])}: <b>${esc(L[0])}</b>${nonLatin ? ` <span class="script">${esc(L[1])}</span>` : ''}</div>` : '';
+    const btns = `<button class="chip say" data-say="en">🔊 ${M.key === 'us' ? 'Say it' : 'In English'}</button>${L && localVoice(L) ? '<button class="chip say" data-say="local">🔊 Like a local</button>' : ''}`;
+    return `${line}<div class="say-row">${btns}</div>`;
+  }
+  function wireSay(r, root) {
+    root.querySelectorAll('[data-say]').forEach((b) => b.onclick = () => {
+      if (b.dataset.say === 'en') speakLines([{ text: nameOf(r).replace(/ \(.*\)$/, ''), mood: 'word' }], pickVoice(['en-US']));
+      else { const L = localName(r); speakLines([{ text: L[1], mood: 'word' }], localVoice(L)); }
+    });
+  }
   function wireCardTools(r) {
     $('#moreFact').onclick = () => { $('#factText').textContent = nextFact(r); sfx.click(); };
     $('#zoomTo').onclick = () => { closeModal(); map.flyTo(r); };
     const hi = $('#sayHi'); if (hi) hi.onclick = () => sayHello(r);
+    wireSay(r, card);
   }
 
   function onRegionClick(r, feat, opts = {}) {
     if (!S || !modal.hidden) return;
+    if (peekingMap) { banner(`That’s ${nameOf(r)}! Tap “Back to the question” when you’re ready.`, 3000); return; }
     stopAllSounds(); // the info card is quiet: no leftover battle sounds
     sfx.click(); addVisited(r); save();
     const fact = nextFact(r); const featName = feat && feat.id !== r ? feat.nm : null;
@@ -910,7 +928,7 @@
     placeReverse(r) {
       const place = extra(r)[0]; const opts = [nameOf(r)];
       for (const c of farAway(r)) { if (!opts.includes(nameOf(c))) opts.push(nameOf(c)); if (opts.length === 4) break; }
-      return { q: `Where would you find ${withThe(place, NEEDS_THE_PLACE)}?`, opts: shuffle(opts), ans: nameOf(r), explain: `${place} is in ${nameOf(r)}.` };
+      return { q: `Where would you find ${withThe(place, NEEDS_THE_PLACE)}?`, photo: placePic(r, 'quiz-photo'), opts: shuffle(opts), ans: nameOf(r), explain: `${place} is in ${nameOf(r)}.` };
     },
     capital(r) {
       const c = choices(r, shortCap);
@@ -927,7 +945,8 @@
     },
     place(r) {
       const c = choices(r, (s) => extra(s)[0]);
-      return { q: `Which famous place is in ${nameOf(r)}?`, ...c, explain: `${c.ans} is in ${nameOf(r)}.` };
+      const owner = {}; for (const x of regions) owner[extra(x)[0]] = x;
+      return { q: `Which famous place is in ${nameOf(r)}?`, ...c, optPic: (o) => placePic(owner[o], 'opt-pic'), explain: `${c.ans} is in ${nameOf(r)}.` };
     },
     tradition(r) {
       const c = choices(r, (s) => extra(s)[1]);
@@ -1000,11 +1019,15 @@
   function askQ(B, qs, i) {
     const Q = qs[i];
     $('#stage').innerHTML = `<p class="center small">🧠 <b>Question ${i + 1} of 2</b> — ${i === 0 ? 'right answers raise your chance of winning! (Hint: the answers are on the card you just read.)' : 'one more chance to raise your odds!'}</p>
-      <div class="quiz-q">${esc(Q.q)}</div>${Q.img ? `<img class="quiz-flag" src="${Q.img}" alt="A flag">` : ''}
-      <div class="quiz-opts">${Q.opts.map((o, k) => `<button data-k="${k}">${Q.kind === 'flag' ? `<img src="${M.flag(o)}" alt="A flag">` : Q.pics ? `${pic(o, 'opt-pic')}<span>${esc(o)}</span>` : esc(o)}</button>`).join('')}</div>
+      <div class="quiz-q">${esc(Q.q)}</div>${Q.img ? `<img class="quiz-flag" src="${Q.img}" alt="A flag">` : ''}${Q.photo || ''}
+      <div class="help-row"><span>Not sure? Look it up!</span><button class="chip" id="peekCard">📖 Look at the card</button><button class="chip" id="peekMap">🗺️ View map</button></div>
+      <div class="quiz-opts">${Q.opts.map((o, k) => `<button data-k="${k}">${Q.kind === 'flag' ? `<img src="${M.flag(o)}" alt="A flag">` : Q.pics ? `${pic(o, 'opt-pic')}<span>${esc(o)}</span>` : Q.optPic ? `${Q.optPic(o)}<span>${esc(o)}</span>` : esc(o)}</button>`).join('')}</div>
       <div id="qres"></div>`;
+    $('#peekCard').onclick = () => peekCard(B);
+    $('#peekMap').onclick = () => peekMap(B);
     const btns = card.querySelectorAll('.quiz-opts button');
     btns.forEach((b) => b.onclick = () => {
+      card.querySelectorAll('.help-row button').forEach((x) => (x.disabled = true));
       const right = Q.opts[+b.dataset.k] === Q.ans;
       btns.forEach((x) => { x.disabled = true; if (Q.opts[+x.dataset.k] === Q.ans) x.classList.add('right'); });
       if (!right) b.classList.add('wrong');
@@ -1018,6 +1041,28 @@
         <div class="btn-row"><button class="btn primary" id="qNext">${i === 0 ? 'Next question →' : 'Get ready to spin! 🎡'}</button></div>`;
       $('#qNext').onclick = () => (i === 0 ? askQ(B, qs, 1) : spinStage(B));
     });
+  }
+
+  // 📖 Look at the card without leaving the battle
+  function peekCard(B) {
+    sfx.click();
+    const panel = document.createElement('div'); panel.className = 'peek';
+    panel.innerHTML = `<button class="btn gold back-q" id="backQ">↩ Back to the question</button>${cardHTML(B.clicked, nextFact(B.clicked))}<button class="btn gold back-q" id="backQ2">↩ Back to the question</button>`;
+    $('#wheelBox').hidden = true; $('#stage').hidden = true; card.appendChild(panel); card.scrollTop = 0;
+    const hi = panel.querySelector('#sayHi'); if (hi) hi.onclick = () => sayHello(B.clicked);
+    wireSay(B.clicked, panel);
+    const back = () => { stopSpeech(); panel.remove(); $('#wheelBox').hidden = false; $('#stage').hidden = false; $('#stage').scrollIntoView({ block: 'center' }); };
+    panel.querySelector('#backQ').onclick = back; panel.querySelector('#backQ2').onclick = back;
+  }
+  // 🗺️ Peek at the map (hover or tap places to see their names), then come back to the same question
+  function peekMap(B) {
+    sfx.click();
+    peekingMap = true; modal.hidden = true;
+    map.flyTo(B.clicked);
+    banner('🗺️ Look around the map, then tap “Back to the question”');
+    const btn = document.createElement('button'); btn.className = 'btn gold back-to-q'; btn.textContent = '↩ Back to the question';
+    btn.onclick = () => { btn.remove(); peekingMap = false; banner(null); modal.hidden = false; };
+    $('#mapwrap').appendChild(btn);
   }
 
   function spinStage(B) {

@@ -1,4 +1,4 @@
-# Lyman Learning: World Domination Geography Game
+# Lyman Learning: Globe Quest — Geography Game
 
 A free browser game for kids and families. Pick a country (or US state), spin the battle wheel, and conquer the map — while learning capitals, languages, flags, greetings and fun facts.
 

@@ -1,4 +1,4 @@
-/* Lyman Learning: World Domination — offline / airplane-mode support (service worker).
+/* Lyman Learning: Globe Quest — offline / airplane-mode support (service worker).
    On install it saves EVERY file the game needs (listed in js/offline-files.js), so the game
    plays with no internet at all. After that, files are served from the saved copy first and
    quietly refreshed in the background whenever the internet is available. */
