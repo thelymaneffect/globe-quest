@@ -16,7 +16,7 @@ No accounts, no ads, no tracking. Progress saves automatically in the player's o
    - Ages are guidelines: most kids handle small losses somewhere around 6–8, and kids with ADHD are often 2–3 years behind in self-regulation, so the higher end of each range fits them.
 7. Own the whole map to win.
 
-Zoom in to see capitals ★, major cities ●, rivers, lakes, mountain ranges and deserts. Switch between the **2D map** and the **3D globe** at any time.
+Zoom in to see capitals ★, major cities ●, rivers, lakes, mountain ranges and deserts. The blue arrow takes you back to your home country or state. Switch between the **2D map** and the **3D globe** at any time.
 
 ## Install it as an app
 On the title screen, a **📲 Get the app** button appears in the corner on phones, tablets and computers that support it (Chrome, Edge, Android, iPhone/iPad Safari, Mac Safari). Installed, it opens full-screen from the home screen and works offline.

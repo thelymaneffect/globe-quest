@@ -399,7 +399,7 @@
           const [name, lon, lat, cap] = p;
           const isStar = wantStars;
           const s = this._toScreen([lon, lat]); if (!s || s[0] < -20 || s[1] < -20 || s[0] > this.w + 20 || s[1] > this.h + 20) continue;
-          const fs = isStar ? 14 : 11;
+          const fs = isStar ? 12 : 10.5;
           ctx.font = `${isStar ? 800 : 700} ${fs}px Nunito, sans-serif`;
           const tw = ctx.measureText(name).width;
           // name goes right, left, below or above the marker — wherever it fits
@@ -417,6 +417,34 @@
           ctx.strokeText(name, spot[3], spot[4]); ctx.fillStyle = '#1d2a3a'; ctx.fillText(name, spot[3], spot[4]);
         }
       };
+      // region names
+      const seen = new Set();
+      const sorted = this._sortedForLabels || (this._sortedForLabels = this.features.filter(f => f.o).slice().sort((a, b) => b.area - a.area));
+      for (const f of sorted) {
+        if (seen.has(f.o) || f.id !== f.o) continue;
+        // labelPlan decides: hide a conquered place's name when it joined its conqueror's land,
+        // or show the conqueror's name on a far-away conquered place
+        const plan = this.labelPlan ? this.labelPlan(f.o) : null;
+        if (plan && plan.hide) continue;
+        const sizePx = Math.sqrt(plan && plan.area ? plan.area : f.area) * scale;
+        let name = plan && plan.text ? plan.text : (this.labelName ? this.labelName(f.o) : f.nm);
+        let fsz = Math.max(13, Math.min(24, sizePx / 7));
+        ctx.font = `800 ${fsz}px Nunito, sans-serif`;
+        let tw = ctx.measureText(name).width;
+        if (sizePx < tw * 0.9) { // doesn't fit: try a smaller size, then the short name (e.g. "RI")
+          fsz = 12; ctx.font = `800 ${fsz}px Nunito, sans-serif`; tw = ctx.measureText(name).width;
+          if (sizePx < tw * 0.9) {
+            const short = !(plan && plan.text) && this.labelShort ? this.labelShort(f.o) : null;
+            if (!short) continue;
+            name = short; tw = ctx.measureText(name).width;
+            if (sizePx < tw * 0.8) continue;
+          }
+        }
+        const s = this._toScreen(plan && plan.at ? plan.at : f.lp); if (!s) continue;
+        if (!tryLabel(s[0], s[1], tw, fsz)) continue;
+        seen.add(f.o);
+        text(name, s[0], s[1], `800 ${fsz}px Nunito, sans-serif`, COL.label, 3.5);
+      }
       // 0) oceans and seas
       for (const [name, lon, lat, major] of WATERS) {
         if (!major && eff < (this.mode === 'us' ? 3 : 1.8)) continue;
@@ -439,27 +467,6 @@
         }
       }
       // 1) country/state names  2) capitals  3) cities  4) mountains & deserts  5) river names
-      // region names
-      const seen = new Set();
-      const sorted = this._sortedForLabels || (this._sortedForLabels = this.features.filter(f => f.o).slice().sort((a, b) => b.area - a.area));
-      for (const f of sorted) {
-        if (seen.has(f.o) || f.id !== f.o) continue;
-        // labelPlan decides: hide a conquered place's name when it joined its conqueror's land,
-        // or show the conqueror's name on a far-away conquered place
-        const plan = this.labelPlan ? this.labelPlan(f.o) : null;
-        if (plan && plan.hide) continue;
-        const sizePx = Math.sqrt(plan && plan.area ? plan.area : f.area) * scale;
-        const name = plan && plan.text ? plan.text : (this.labelName ? this.labelName(f.o) : f.nm);
-        const fsz = Math.max(11, Math.min(plan && plan.area ? 22 : 18, sizePx / 9));
-        ctx.font = `800 ${fsz}px Nunito, sans-serif`;
-        const tw = ctx.measureText(name).width;
-        if (sizePx < tw * 0.9) continue;
-        const s = this._toScreen(plan && plan.at ? plan.at : f.lp); if (!s) continue;
-        if (!tryLabel(s[0], s[1], tw, fsz)) continue;
-        seen.add(f.o);
-        text(name, s[0], s[1], `800 ${fsz}px Nunito, sans-serif`, COL.label, 3.5);
-      }
-
       drawPlaces(true);
       drawPlaces(false);
       if (this.detail) {
@@ -470,8 +477,8 @@
             const nm = l.properties.n; if (!nm) continue;
             const a = (l._a = l._a || d3.geoArea(l)) * scale * scale; if (a < 250) continue;
             const s = this._toScreen(l._c = l._c || d3.geoCentroid(l)); if (!s || s[0] < 0 || s[1] < 0 || s[0] > this.w || s[1] > this.h) continue;
-            ctx.font = 'italic 700 11px Nunito, sans-serif'; const tw = ctx.measureText(nm).width;
-            if (tryLabel(s[0], s[1], tw, 13)) text(nm, s[0], s[1], 'italic 700 11px Nunito, sans-serif', '#2a6ea8');
+            ctx.font = 'italic 700 10px Nunito, sans-serif'; const tw = ctx.measureText(nm).width;
+            if (tryLabel(s[0], s[1], tw, 12)) text(nm, s[0], s[1], 'italic 700 10px Nunito, sans-serif', '#2a6ea8');
           }
         }
         if (eff >= 1.6) {
@@ -479,10 +486,10 @@
             if (rank > eff + 0.6) continue;
             const s = this._toScreen([lon, lat]); if (!s || s[0] < 0 || s[1] < 0 || s[0] > this.w || s[1] > this.h) continue;
             const label = t === 'm' ? '▲ ' + name : name;
-            ctx.font = 'italic 700 12px Nunito, sans-serif';
+            ctx.font = 'italic 700 10.5px Nunito, sans-serif';
             const tw = ctx.measureText(label).width;
-            if (!tryLabel(s[0], s[1], tw, 14)) continue;
-            text(label, s[0], s[1], 'italic 700 12px Nunito, sans-serif', t === 'm' ? COL.mountain : COL.desert);
+            if (!tryLabel(s[0], s[1], tw, 12)) continue;
+            text(label, s[0], s[1], 'italic 700 10.5px Nunito, sans-serif', t === 'm' ? COL.mountain : COL.desert);
           }
         }
         // river names
@@ -494,9 +501,9 @@
             if (!cs || cs.length < 2) continue;
             const mid = cs[(cs.length / 2) | 0]; const s = this._toScreen(mid);
             if (!s || s[0] < 0 || s[1] < 0 || s[0] > this.w || s[1] > this.h) continue;
-            const nm = r.properties.n; ctx.font = 'italic 700 11px Nunito, sans-serif';
-            const tw = ctx.measureText(nm).width; if (!tryLabel(s[0], s[1], tw, 13)) continue;
-            text(nm, s[0], s[1], 'italic 700 11px Nunito, sans-serif', '#2a6ea8');
+            const nm = r.properties.n; ctx.font = 'italic 700 10px Nunito, sans-serif';
+            const tw = ctx.measureText(nm).width; if (!tryLabel(s[0], s[1], tw, 12)) continue;
+            text(nm, s[0], s[1], 'italic 700 10px Nunito, sans-serif', '#2a6ea8');
             if (++n > 40) break;
           }
         }

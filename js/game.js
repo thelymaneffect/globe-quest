@@ -415,6 +415,7 @@
     map.empireOf = (r) => (S ? S.own[r] : r);
     map.labelName = (r) => (M.key === 'us' ? nameOf(r) : (info(r) ? info(r)[0].replace(/ \(.*\)$/, '') : r));
     map.labelPlan = (r) => labelPlan[r] || null;
+    map.labelShort = (r) => (M.key === 'us' ? r : null); // postal code when a state's full name won't fit
     buildNeighbors(topo);
     map.onRender = updateCompass;
     map.view = settings.view;
@@ -587,21 +588,13 @@
   $('#zIn').onclick = () => map.zoomBy(1.8);
   $('#zOut').onclick = () => map.zoomBy(1 / 1.8);
   $('#zReset').onclick = () => map.resetView(true);
-  // 📍 Blue location arrow: flies to the general area where this device is.
-  // The location is rounded (about 10 km), used only on this device, and never saved or sent anywhere.
+  // 🏠 Blue arrow: flies back to your home country/state (the one you picked at the start)
   $('#zHere').onclick = () => {
     sfx.click();
-    const goEmpire = (why) => { banner(why, 4500); if (S && S.player) map.flyTo(S.player); };
-    if (!('geolocation' in navigator)) { goEmpire('This device can’t share its location. Here’s your empire instead!'); return; }
-    banner('📍 Finding where you are…');
-    navigator.geolocation.getCurrentPosition((pos) => {
-      const ll = [Math.round(pos.coords.longitude * 10) / 10, Math.round(pos.coords.latitude * 10) / 10];
-      map.here = ll; map.draw();
-      if (!map.flyToPoint(ll)) { banner('📍 You’re outside this map! Showing the whole map.', 4500); map.resetView(true); return; }
-      const r = map.regionAt(ll);
-      banner(r ? `📍 You are here: ${nameOf(r)}!` : '📍 Here you are!', 4500);
-    }, () => goEmpire('Couldn’t find your location (location may be off, or need Wi-Fi). Here’s your empire instead!'),
-    { enableHighAccuracy: false, timeout: 10000, maximumAge: 30 * 60 * 1000 });
+    if (!S || !S.player) { banner(`Choose your ${M ? M.unit : 'country'} first — then this arrow takes you home!`, 3500); return; }
+    const home = S.startedAs && S.own[S.startedAs] === S.player ? S.startedAs : S.player;
+    map.flyTo(home);
+    banner(`🏠 Home: ${nameOf(home)}`, 3000);
   };
   function updateSoundBtn() { $('#btnSound').textContent = settings.sound ? '🔊' : '🔇'; }
   $('#btnSound').onclick = () => { settings.sound = !settings.sound; saveSettings(); updateSoundBtn(); sfx.click(); };
