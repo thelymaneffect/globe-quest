@@ -109,19 +109,98 @@
   modal.addEventListener('click', (e) => { if (e.target === modal && !card.querySelector('[data-lock]')) closeModal(); });
   document.addEventListener('keydown', (e) => { if (e.key === 'Escape' && !modal.hidden && !card.querySelector('[data-lock]')) closeModal(); });
 
-  /* ---------------- speech ---------------- */
-  function speak(text) {
-    if (!('speechSynthesis' in window)) return;
-    stopSpeech();
-    const u = new SpeechSynthesisUtterance(text); u.rate = 0.92; u.lang = 'en-US';
-    // on-device voices work in airplane mode; online-only voices (like Chrome's "Google" voices) don't
-    const all = speechSynthesis.getVoices(), local = all.filter((x) => x.localService);
+  /* ---------------- speech: a friendly narrator ----------------
+     Uses voices stored on the device (they work in airplane mode). The narrator speaks clear English
+     in the closest regional accent, and local greetings are spoken by a native voice when the device has one.
+     Each sentence is its own utterance with small natural changes in pitch and pace. */
+  const NOVELTY = /Albert|Bad News|Bahh|Bells|Boing|Bubbles|Cellos|Good News|Jester|Organ|Superstar|Trinoids|Whisper|Wobble|Zarvox|Fred|Junior|Ralph|Kathy|Grandma|Grandpa|Eddy|Flo|Reed|Rocko|Sandy|Shelley/i;
+  const normLang = (l) => (l || '').replace('_', '-').toLowerCase();
+  function pickVoice(prefs, strict) {
+    if (!('speechSynthesis' in window)) return null;
+    const all = speechSynthesis.getVoices();
+    const local = all.filter((v) => v.localService);
     const pool = local.length ? local : all;
-    const v = pool.find((x) => /en[-_]US/i.test(x.lang) && /Samantha|Natural|Aria|Jenny|Ava|Allison/i.test(x.name)) || pool.find((x) => /en[-_]US/i.test(x.lang)) || pool.find((x) => /^en/i.test(x.lang));
-    if (v) u.voice = v;
-    speechSynthesis.speak(u);
+    const score = (v) => (/Premium|Enhanced|Neural|Natural/i.test(v.name) ? 6 : 0) + (/Siri/i.test(v.name) ? 3 : 0) + (v.localService ? 2 : 0) - (NOVELTY.test(v.name) ? 50 : 0);
+    for (const p of prefs) {
+      const want = p.toLowerCase();
+      const hits = pool.filter((v) => (want.includes('-') ? normLang(v.lang) === want : normLang(v.lang).split('-')[0] === want));
+      if (hits.length) return hits.sort((a, b) => score(b) - score(a))[0];
+    }
+    if (strict) return null;
+    const en = pool.filter((v) => /^en/i.test(v.lang)).sort((a, b) => score(b) - score(a));
+    return en[0] || null;
   }
+  // closest English accent for each part of the world
+  function accentFor(r) {
+    if (!M || M.key === 'us') return ['en-US'];
+    const by = { GB: ['en-GB'], IE: ['en-IE', 'en-GB'], AU: ['en-AU'], NZ: ['en-NZ', 'en-AU'], ZA: ['en-ZA'], CA: ['en-CA', 'en-US'], US: ['en-US'],
+      IN: ['en-IN'], PK: ['en-IN'], BD: ['en-IN'], LK: ['en-IN'], NP: ['en-IN'], BT: ['en-IN'], MV: ['en-IN'], SG: ['en-SG', 'en-GB'], PH: ['en-PH', 'en-US'],
+      NG: ['en-NG', 'en-GB'], GH: ['en-GH', 'en-NG', 'en-GB'], KE: ['en-KE', 'en-TZ', 'en-GB'], TZ: ['en-TZ', 'en-KE', 'en-GB'], UG: ['en-UG', 'en-KE', 'en-GB'] };
+    if (by[r]) return [...by[r], 'en-GB', 'en-US'];
+    const m = window.WORLD_META[r] || {};
+    if (m.region === 'Africa') return ['ZW', 'ZM', 'MW', 'MZ', 'BW', 'NA', 'LS', 'SZ'].includes(r) ? ['en-ZA', 'en-GB'] : ['en-NG', 'en-KE', 'en-GB'];
+    if (m.region === 'Oceania') return ['en-AU', 'en-NZ', 'en-GB'];
+    if (m.region === 'Europe') return ['en-GB', 'en-IE'];
+    if (m.region === 'Asia') return m.sub === 'Southern Asia' ? ['en-IN', 'en-GB'] : ['en-GB', 'en-AU'];
+    if (m.region === 'Americas') return m.sub === 'Caribbean' ? ['en-JM', 'en-TT', 'en-GB', 'en-US'] : ['en-US'];
+    return ['en-GB', 'en-US'];
+  }
+  // speech codes for greeting languages (only used when the device has that voice)
+  const LANG_CODES = { Arabic: ['ar-SA', 'ar'], 'Tunisian Arabic': ['ar-TN', 'ar'], French: ['fr-FR', 'fr'], Spanish: ['es-ES', 'es'], Portuguese: ['pt-PT', 'pt'],
+    German: ['de-DE', 'de'], 'Austrian German': ['de-AT', 'de'], 'Swiss German': ['de-CH', 'de'], 'Liechtenstein German': ['de-CH', 'de'], Italian: ['it'], Dutch: ['nl'],
+    Swedish: ['sv'], Norwegian: ['nb', 'no'], Danish: ['da'], Finnish: ['fi'], Polish: ['pl'], Czech: ['cs'], Slovak: ['sk'], Hungarian: ['hu'], Romanian: ['ro'],
+    Ukrainian: ['uk'], Russian: ['ru'], Bulgarian: ['bg'], Croatian: ['hr'], Serbian: ['sr'], Montenegrin: ['sr', 'hr'], Bosnian: ['bs', 'hr'], Slovene: ['sl'],
+    Greek: ['el'], Turkish: ['tr'], Hebrew: ['he'], Persian: ['fa'], Dari: ['fa'], Hindi: ['hi'], Bengali: ['bn'], Urdu: ['ur'], Thai: ['th'], Vietnamese: ['vi'],
+    Indonesian: ['id'], Malay: ['ms'], Mandarin: ['zh-CN', 'zh'], Japanese: ['ja'], Korean: ['ko'], Catalan: ['ca'], Swahili: ['sw'], Afrikaans: ['af'], Zulu: ['zu'],
+    Filipino: ['fil', 'tl'], Icelandic: ['is'], Irish: ['ga'], Lithuanian: ['lt'], Latvian: ['lv'], Estonian: ['et'], Albanian: ['sq'], Macedonian: ['mk'],
+    Belarusian: ['be'], Kazakh: ['kk'], Uzbek: ['uz'], Georgian: ['ka'], Armenian: ['hy'], Azerbaijani: ['az'], Nepali: ['ne'], Sinhala: ['si'], Khmer: ['km'],
+    Lao: ['lo'], Burmese: ['my'], Mongolian: ['mn'], Amharic: ['am'], Somali: ['so'], Hausa: ['ha'], Yoruba: ['yo'], Māori: ['mi'], Maltese: ['mt'], Luxembourgish: ['lb'] };
+  const LOCAL_VARIANT = { BR: { Portuguese: ['pt-BR', 'pt'] }, CA: { French: ['fr-CA', 'fr'] }, TW: { Mandarin: ['zh-TW', 'zh'] }, BE: { French: ['fr-BE', 'fr'], Dutch: ['nl-BE', 'nl'] }, CH: { French: ['fr-CH', 'fr'] } };
+  function greetingVoice(r, lang) {
+    if (/English|Patois/.test(lang)) return null; // the narrator says these
+    let codes = (LOCAL_VARIANT[r] || {})[lang] || LANG_CODES[lang];
+    if (lang === 'Spanish' && r !== 'ES') codes = ['es-MX', 'es-US', 'es-419', 'es'];
+    return codes ? pickVoice(codes, true) : null;
+  }
+  // parse "Bonjour (French)" or "Hello / Bonjour (English / French)" into pairs
+  function greetingsOf(r) {
+    const raw = info(r)[4] || ''; const m = raw.match(/^(.*?)\s*\(([^)]*)\)\s*$/);
+    const words = (m ? m[1] : raw).split(' / '), langs = (m ? m[2].split(/,|“/)[0] : '').split(' / ').map((s) => s.trim());
+    return words.map((w, i) => ({ word: w.trim(), lang: langs[i] || langs[0] || '' }));
+  }
+  const listJoin = (arr) => (arr.length < 2 ? arr.join('') : arr.length === 2 ? `${arr[0]} and ${arr[1]}` : arr.slice(0, -1).join(', ') + ', and ' + arr[arr.length - 1]);
+  // add "the" where English needs it: "the Eiffel Tower", "the Naadam festival" — but "Mount Fuji", "Victoria Falls"
+  const NEEDS_THE_PLACE = /\bof\b|(Towers?|House|Canal|Hills|Islands|Desert|Mountains|Lagoon|Lakes|Delta|Gardens|Building|Dunes|Peaks|highlands|Plateau rock arches|Sculpture Park|Grand Palace in Bangkok|Wall of China|Sundarbans mangrove forest|Maasai Mara|Taj Mahal|Burj Khalifa|Atomium|Parthenon|Sistine Chapel|Kokoda Track|French Quarter in New Orleans|Space Needle|Liberty Bell|Gateway Arch|Hoover Dam|Mall of America|Golden Gate Bridge|U\.S\. Space & Rocket Center|Kennedy Space Center|Rock and Roll Hall of Fame|Indianapolis Motor Speedway|Atlantic City boardwalk|International Peace Garden|Mississippi River|Great Smoky Mountains|Great Blue Hole|Underwater Sculpture Park|Boiling Lake|Tree of Life|Eye of the Sahara|Sudd wetland|Gobi Desert|Pamir Mountains|Pyrenees ski slopes|Rock Islands|Funafuti Lagoon|Prince’s Palace|ICEHOTEL|Hill of Crosses|Bay of Kotor|Seven Coloured Earths|Avenue of the Baobabs|Kinderdijk windmills|Svaneti stone towers|Fiat Tagliero airplane building|Basilica of Our Lady of Peace|Church of the Nativity|Museum of Islamic Art|Ziggurat of Ur|Registan Square|Chocolate Hills|Old Faithful geyser|Redeemer statue|Apostle Islands|Field of Dreams|Tallgrass Prairie|Newport mansions|Covered bridges)$/;
+  const NEEDS_THE_THING = /\bof\b|(festival|dance|drummers|race|party|trail|express|guard|games|palace|ceremony|didgeridoo|piano|flute|fiddle\)|necktie)$/i;
+  const withThe = (s, re) => (/^(The|the|A|An) /.test(s) || /, the /.test(s) || !re.test(s) ? s : 'the ' + s);
+  const forSpeech = (s) => String(s).replace(/\s*\(([^)]*)\)/g, ', $1,').replace(/,\s*,/g, ',').replace(/,\s*([.!?])/g, '$1').replace(/[“”]/g, '"').trim().replace(/,$/, '');
+  // queue a list of lines: [{ text, mood: 'excited'|'question'|'calm', voice }]
+  let speechId = 0;
+  function speakLines(lines, defaultVoice) {
+    if (!('speechSynthesis' in window)) return;
+    stopSpeech(); const myId = ++speechId;
+    const jitter = (n) => (Math.random() * 2 - 1) * n;
+    lines.forEach((ln, i) => {
+      const u = new SpeechSynthesisUtterance(ln.text);
+      const v = ln.voice || defaultVoice; if (v) { u.voice = v; u.lang = v.lang; }
+      const mood = ln.mood || (/[!]$/.test(ln.text) ? 'excited' : /[?]$/.test(ln.text) ? 'question' : 'calm');
+      u.rate = ({ excited: 1.0, question: 0.96, calm: 0.94, word: 0.82 }[mood] || 0.94) + jitter(0.03);
+      u.pitch = ({ excited: 1.14, question: 1.08, calm: 1.0, word: 1.05 }[mood] || 1) + jitter(i % 2 ? 0.05 : 0.03);
+      u.volume = 1;
+      if (myId === speechId) speechSynthesis.speak(u);
+    });
+  }
+  function speak(text, voice) { speakLines(String(text).match(/[^.!?]+[.!?]+["”]?|[^.!?]+$/g).map((t) => ({ text: t.trim() })).filter((l) => l.text), voice || pickVoice(['en-US'])); }
   function stopSpeech() { if ('speechSynthesis' in window) speechSynthesis.cancel(); }
+  function sayHello(r) {
+    const narrator = pickVoice(accentFor(r));
+    const lines = [];
+    for (const g of greetingsOf(r)) {
+      const v = greetingVoice(r, g.lang);
+      lines.push({ text: g.word.replace(/[.!?]*$/, '') + '!', voice: v || narrator, mood: v ? 'word' : 'excited' });
+    }
+    speakLines(lines, narrator);
+  }
 
   /* ---------------- confetti ---------------- */
   function confetti(n = 120) {
@@ -479,25 +558,53 @@
   }
 
   function readCard(r) {
-    const I = info(r); const fact = $('#factText') ? $('#factText').textContent : '';
-    let t;
-    if (M.key === 'us') t = `${I[0]}. The capital is ${I[1]}. Its nickname is ${I[2]}. It became the ${ordinal(I[4])} state in ${I[3]}. Did you know? ${fact}`;
-    else {
-      const hi = I[4].split(' (')[0];
-      t = `${I[0]}. The capital is ${I[1].replace(/;/g, ',')}. People speak ${I[2]}${I[3] ? `, and also ${I[3]}` : ''}. To say hello, say: ${hi}. Did you know? ${fact}`;
+    const I = info(r), us = M.key === 'us';
+    const fact = $('#factText') ? $('#factText').textContent : '';
+    const narrator = pickVoice(accentFor(r));
+    const name = I[0].replace(/ \(.*\)$/, '');
+    const L = [];
+    L.push({ text: `Welcome to ${name}!` });
+    if (us) {
+      L.push({ text: `The capital is ${I[1]}.` });
+      L.push({ text: `Its nickname is ${I[2].replace(/^The /, 'the ')}.` });
+      L.push({ text: `${name} became the ${ordinal(I[4])} state in ${I[3]}.` });
+      L.push({ text: `The state bird is the ${forSpeech(I[5])}.` });
+    } else {
+      L.push({ text: `The capital city is ${shortCap(r)}.` });
+      let langs = forSpeech(I[2]);
+      const others = I[3] ? forSpeech(I[3]) : '';
+      if (others && /^and /.test(others)) langs += `, ${others}`;
+      L.push({ text: `People here speak ${langs}.` });
+      if (others && !/^and /.test(others)) L.push({ text: `You might also hear ${/\band\b/.test(others) ? others : listJoin(others.split(/,\s*/))}.` });
+      const gs = greetingsOf(r);
+      if (gs.length && gs[0].word) {
+        const g = gs[0], v = greetingVoice(r, g.lang);
+        if (/English|Patois/.test(g.lang)) L.push({ text: 'Want to say hello like a local?' }, { text: `Just say, ${g.word}!` });
+        else {
+          L.push({ text: 'Want to say hello like a local?' }, { text: `In ${g.lang.replace(/^(Austrian|Swiss|Liechtenstein) /, '')}, you say…` });
+          L.push({ text: g.word.replace(/[.!?]*$/, '') + '!', voice: v || narrator, mood: v ? 'word' : 'excited' });
+        }
+        for (const g2 of gs.slice(1)) { // e.g. Canada and Belgium have two greetings
+          const v2 = greetingVoice(r, g2.lang);
+          L.push({ text: `Or in ${g2.lang},` }, { text: g2.word.replace(/[.!?]*$/, '') + '!', voice: v2 || narrator, mood: v2 ? 'word' : 'excited' });
+        }
+      }
     }
+    if (fact) { L.push({ text: 'Did you know?', mood: 'question' }); L.push({ text: forSpeech(fact) }); }
     const ex = extra(r);
-    if (ex[0]) t += ` A famous place to visit is ${ex[0]}. ${I[0]} is famous for ${ex[1]}.`;
+    if (ex[0]) L.push({ text: `A famous place to visit is ${forSpeech(withThe(ex[0], NEEDS_THE_PLACE))}.` });
+    if (ex[1]) L.push({ text: `${name} is famous for ${forSpeech(withThe(ex[1], NEEDS_THE_THING))}.` });
     const nat = nature(r);
-    if (nat.animal) t += ` An animal that lives there is the ${nat.animal}.${nat.lands.length ? ` The land has ${nat.lands.map((k) => LANDS[k][0]).join(', ')}.` : ''}`;
-    speak(t);
+    if (nat.animal) L.push({ text: `Keep an eye out for the ${forSpeech(nat.animal).replace(/,.*$/, '')}!` });
+    if (nat.lands.length) L.push({ text: `Here you'll find ${listJoin(nat.lands.map((k) => LANDS[k][0]))}.` });
+    speakLines(L, narrator);
   }
 
   function wireCardTools(r) {
     $('#readAloud').onclick = () => readCard(r);
     $('#moreFact').onclick = () => { $('#factText').textContent = nextFact(r); sfx.click(); };
     $('#zoomTo').onclick = () => { closeModal(); map.flyTo(r); };
-    const hi = $('#sayHi'); if (hi) hi.onclick = () => speak(info(r)[4].split(' (')[0]);
+    const hi = $('#sayHi'); if (hi) hi.onclick = () => sayHello(r);
   }
 
   function onRegionClick(r, feat) {
