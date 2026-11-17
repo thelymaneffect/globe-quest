@@ -346,7 +346,7 @@
         const total = Object.keys(sv.own || {}).length;
         const mine = sv.player ? Object.values(sv.own).filter((e) => e === sv.player).length : 0;
         const b = document.createElement('button'); b.className = 'continue-btn';
-        b.innerHTML = `▶ Continue ${MODES[k].title}<small>${sv.phase === 'pick' ? 'Choosing a country' : `${mine} of ${total} ${MODES[k].units} • ${sv.lives || 0} lives used`}</small>`;
+        b.innerHTML = `▶ Continue ${MODES[k].title}<small>${sv.phase === 'pick' ? 'Choosing a country' : `${mine} of ${total} ${MODES[k].units} • 💪 ${sv.comebacks || 0} comebacks`}</small>`;
         b.onclick = () => { sfx.click(); startMode(k, sv); };
         box.appendChild(b);
       }
@@ -514,7 +514,7 @@
     const hs = $('#hudStatus');
     if (S.player && (S.phase === 'play' || S.phase === 'won')) {
       const n = regionsOf(S.player).length, pct = Math.round(n / regions.length * 100);
-      hs.innerHTML = `<img class="flag" src="${M.flag(S.player)}" alt=""><span class="meta">${esc(nameOf(S.player))} — ${n} / ${regions.length} ${M.units} • ❤️ ${S.lives} ${S.lives === 1 ? 'life' : 'lives'} used</span><span class="bar"><i style="width:${pct}%"></i></span>`;
+      hs.innerHTML = `<img class="flag" src="${M.flag(S.player)}" alt=""><span class="meta">${esc(nameOf(S.player))} — ${n} / ${regions.length} ${M.units} • 💪 ${S.comebacks || 0} ${S.comebacks === 1 ? 'comeback' : 'comebacks'}</span><span class="bar"><i style="width:${pct}%"></i></span>`;
     } else if (S.phase === 'pick') hs.innerHTML = `<span class="meta">${M.title}: choose your ${M.unit}</span>`;
     else if (S.phase === 'respawn') hs.innerHTML = `<span class="meta">Choose a new ${M.unit} to play as</span>`;
     else hs.innerHTML = '';
@@ -765,7 +765,7 @@
     const hi = $('#sayHi'); if (hi) hi.onclick = () => sayHello(r);
   }
 
-  function onRegionClick(r, feat) {
+  function onRegionClick(r, feat, opts = {}) {
     if (!S || !modal.hidden) return;
     stopAllSounds(); // the info card is quiet: no leftover battle sounds
     sfx.click(); addVisited(r); save();
@@ -773,7 +773,8 @@
     const body = cardHTML(r, fact, featName);
     const e = S.own[r];
     let btns = '';
-    if (S.phase === 'pick') btns = `<button class="btn ghost" data-close>Keep looking</button><button class="btn go" id="act">Play as ${esc(nameOf(r))}!</button>`;
+    if (opts.study) btns = `<div class="study-note">📖 Study time! Read this card (or tap 🔊 Read aloud). The answers to your questions are here.</div><button class="btn ghost" data-close>Choose another place</button><button class="btn go" id="act">I’m ready! Try again ⚔️</button>`;
+    else if (S.phase === 'pick') btns = `<button class="btn ghost" data-close>Keep looking</button><button class="btn go" id="act">Play as ${esc(nameOf(r))}!</button>`;
     else if (S.phase === 'play') {
       if (e === S.player) btns = `<button class="btn gold" data-close>Close</button>`;
       else btns = `<button class="btn ghost" data-close>Not now</button><button class="btn primary" id="act">⚔️ Challenge ${esc(empireLabel(e))}!</button>`;
@@ -785,7 +786,8 @@
     wireCardTools(r);
     const act = $('#act');
     if (act) act.onclick = () => {
-      if (S.phase === 'pick') chooseColor(r);
+      if (opts.study) startBattle(opts.study.enemy, r, opts.study.attempt);
+      else if (S.phase === 'pick') chooseColor(r);
       else if (S.phase === 'play') startBattle(e, r);
       else if (S.phase === 'respawn') doRespawn(e);
     };
@@ -951,10 +953,14 @@
     if (pop) $('#wheel').animate([{ transform: 'scale(.85)' }, { transform: 'scale(1.06)' }, { transform: 'scale(1)' }], { duration: 450, easing: 'ease-out' });
   }
 
-  function startBattle(enemy, clicked) {
+  // The wheel is counted in eighths: 4/8 = 50%. Each time you come back after studying, it starts bigger.
+  function setOdds(B) { B.m8 = Math.max(1, Math.min(7, B.m8)); const g = gcd(B.m8, 8); B.mine = B.m8 / g; B.total = 8 / g; }
+  function startBattle(enemy, clicked, attempt = 0) {
     stopAllSounds(); stopSpeech(); // no leftover sounds when a new battle opens
-    const B = { enemy, mine: 1, total: 2 };
-    openModal(`<h3 class="mtitle">⚔️ Battle!</h3>${versusHTML(enemy)}<div id="wheelBox"></div><div id="stage"></div>`, { noClose: true });
+    const B = { enemy, clicked, attempt, m8: 4 + Math.min(2, attempt) };
+    setOdds(B);
+    const growth = attempt ? `<p class="center growth">🌱 You studied and came back — your chance starts at <b>${pct(B.mine, B.total)}</b> this time!</p>` : '';
+    openModal(`<h3 class="mtitle">${attempt ? `💪 Try again! (round ${attempt + 1})` : '⚔️ Battle!'}</h3>${versusHTML(enemy)}${growth}<div id="wheelBox"></div><div id="stage"></div>`, { noClose: true });
     card.insertAdjacentHTML('afterbegin', '<span data-lock></span>');
     drawWheel(B);
     if (!settings.cats.length) { spinStage(B); return; }
@@ -974,7 +980,7 @@
       btns.forEach((x) => { x.disabled = true; if (Q.opts[+x.dataset.k] === Q.ans) x.classList.add('right'); });
       if (!right) b.classList.add('wrong');
       right ? sfx.right() : sfx.wrong();
-      if (i === 0) { B.mine = right ? 3 : 1; B.total = 4; } else { B.mine = B.mine * 2 + (right ? 1 : -1); B.total = 8; }
+      B.m8 += (i === 0 ? 2 : 1) * (right ? 1 : -1); setOdds(B);
       drawWheel(B, true);
       const fact = Q.explain;
       $('#qres').innerHTML = `<div class="odds">${right ? `✅ Correct! ${esc(fact)}<br>Your chance grows to ${odds(B.mine, B.total)}!`
@@ -996,21 +1002,23 @@
       const rot = 360 * 6 + (360 - a);
       sfx.spin();
       $('#wheel').animate([{ transform: 'rotate(0deg)' }, { transform: `rotate(${rot}deg)` }], { duration: 3400, easing: 'cubic-bezier(.12,.65,.2,1)', fill: 'forwards' });
-      setTimeout(() => resolveBattle(B.enemy, win), 3600);
+      setTimeout(() => resolveBattle(B, win), 3600);
     };
   }
 
-  function resolveBattle(enemy, win) {
+  function resolveBattle(B, win) {
+    const enemy = B.enemy;
     S.battles++;
     const out = $('#flipOut');
     if (win) {
       const taken = regionsOf(enemy);
       for (const r of taken) { S.own[r] = S.player; if (!S.conquered.includes(r)) S.conquered.push(r); }
       S.wins++; S.log.push(['win', enemy, taken.length]);
+      if (B.attempt) S.comebacks = (S.comebacks || 0) + 1;
       save(); sfx.win(); confetti(80);
       const done = regionsOf(S.player).length === regions.length;
-      out.innerHTML = `<div class="result win">🎉 The wheel landed on YOU! You win!</div>
-        <p class="center">You take over ${taken.length > 1 ? `all ${taken.length} ${M.units} of ${esc(nameOf(enemy))}’s empire` : esc(nameOf(enemy))}!</p>
+      out.innerHTML = `<div class="result win">${B.attempt ? '💪 What a comeback! You win!' : '🎉 The wheel landed on YOU! You win!'}</div>
+        <p class="center">${B.attempt ? 'You learned, tried again, and grew stronger. ' : ''}You take over ${taken.length > 1 ? `all ${taken.length} ${M.units} of ${esc(nameOf(enemy))}’s empire` : esc(nameOf(enemy))}!</p>
         <div class="btn-row"><button class="btn go" id="resOk">${done ? '🏆 See your victory!' : 'Keep conquering! ⚔️'}</button></div>`;
       $('#resOk').onclick = () => {
         closeModal(); refresh(); map.pulse(taken);
@@ -1018,20 +1026,14 @@
         else banner(`${regionsOf(S.player).length} / ${regions.length} ${M.units} are yours!`, 3500);
       };
     } else {
-      const lost = regionsOf(S.player);
-      const old = S.player;
-      for (const r of lost) S.own[r] = enemy;
-      S.lives++; S.lastBeatBy = enemy; S.log.push(['lose', enemy, lost.length]);
-      S.player = null; save(); sfx.lose();
-      const left = [...empires().keys()].filter((e) => e !== enemy);
-      out.innerHTML = `<div class="result lose">The wheel landed on ${esc(nameOf(enemy))}… they win!</div>
-        <p class="center">${esc(nameOf(enemy))} takes over ${lost.length > 1 ? `your whole empire (${lost.length} ${M.units})` : esc(nameOf(old))}.</p>
-        <div class="btn-row"><button class="btn gold" id="resOk">${left.length ? `Choose a new ${M.unit} →` : 'See results'}</button></div>`;
-      $('#resOk').onclick = () => {
-        closeModal(); refresh(); map.pulse(lost);
-        if (!left.length) { S.phase = 'lost'; save(); showGameOver(); }
-        else { S.phase = 'respawn'; save(); refresh(); respawnPrompt(); }
-      };
+      // Redemption: losing a spin never costs your land. Study, adapt, and try again.
+      S.log.push(['retry', enemy]); save(); sfx.lose();
+      const next = Math.min(2, B.attempt + 1), nextPct = pct((4 + next) / gcd(4 + next, 8), 8 / gcd(4 + next, 8));
+      out.innerHTML = `<div class="result lose">Not this time!</div>
+        <p class="center">🌱 Every mistake is a chance to learn and grow. Your land is safe. Study ${esc(nameOf(B.clicked))}’s card, then try again — your wheel will start at <b>${nextPct}</b>!</p>
+        <div class="btn-row"><button class="btn ghost" id="retreat">Choose another place</button><button class="btn go" id="study">📖 Study &amp; try again</button></div>`;
+      $('#retreat').onclick = () => { closeModal(); banner('No problem! Pick any place to challenge. 🌍', 3500); };
+      $('#study').onclick = () => { closeModal(); onRegionClick(B.clicked, null, { study: { enemy, attempt: B.attempt + 1 } }); };
     }
   }
 
@@ -1053,7 +1055,7 @@
 
   /* ================= END SCREENS ================= */
   function statsHTML() {
-    return `<div class="pp-stats"><div>⚔️ ${S.battles} battles</div><div>🏆 ${S.wins} wins</div><div>❤️ ${S.lives} lives used</div><div>🗺️ ${S.visited.length} / ${regions.length} visited</div></div>`;
+    return `<div class="pp-stats"><div>⚔️ ${S.battles} ${S.battles === 1 ? 'battle' : 'battles'}</div><div>🏆 ${S.wins} ${S.wins === 1 ? 'win' : 'wins'}</div><div>💪 ${S.comebacks || 0} ${S.comebacks === 1 ? 'comeback' : 'comebacks'}</div><div>🗺️ ${S.visited.length} / ${regions.length} visited</div></div>`;
   }
   function showWin() {
     banner(null); confetti(220); sfx.win();
@@ -1073,12 +1075,12 @@
 
   /* ================= PASSPORT ================= */
   function showPassport() {
-    const v = new Set(S.visited), c = new Set(S.conquered);
+    const c = new Set(S.conquered);
     openModal(`<h3 class="mtitle">🛂 My Passport</h3>
-      <p class="center small">Every ${M.unit} you tap gets a flag in your passport. ${M.units[0].toUpperCase() + M.units.slice(1)} you’ve conquered get a stamp!</p>
+      <p class="center small">Every ${M.unit} is in your passport. Flags stay gray until you conquer them — then they get full color and a stamp! Tap any flag to visit it.</p>
       ${statsHTML()}
-      <div class="pp-grid">${regions.map((r) => `<button class="pp ${v.has(r) ? '' : 'locked'}" data-r="${r}" ${v.has(r) ? '' : 'disabled'}><img src="${M.flag(r)}" alt="" loading="lazy">${c.has(r) ? '<span class="stamp">CONQUERED</span>' : ''}<div>${v.has(r) ? esc(nameOf(r)) : '???'}</div></button>`).join('')}</div>`, { wide: true });
-    card.querySelectorAll('.pp:not(.locked)').forEach((b) => b.onclick = () => { closeModal(); map.flyTo(b.dataset.r); setTimeout(() => onRegionClick(b.dataset.r), 700); });
+      <div class="pp-grid">${regions.map((r) => `<button class="pp ${c.has(r) ? '' : 'locked'}" data-r="${r}"><img src="${M.flag(r)}" alt="" loading="lazy">${c.has(r) ? '<span class="stamp">CONQUERED</span>' : ''}<div>${esc(nameOf(r))}</div></button>`).join('')}</div>`, { wide: true });
+    card.querySelectorAll('.pp').forEach((b) => b.onclick = () => { closeModal(); map.flyTo(b.dataset.r); setTimeout(() => onRegionClick(b.dataset.r), 700); });
   }
 
   /* ================= INSTALL AS AN APP ================= */
