@@ -34,7 +34,8 @@
   const DETAIL_SCRIPTS = ['data/places.js', 'data/cities.js', 'data/rivers.js', 'data/lakes.js', 'data/features.js'];
 
   let settings = Object.assign({ sound: true, view: '2d', legendOpen: window.innerWidth > 900, stakes: 'none' }, store.get(SET_KEY) || {});
-  if (!Array.isArray(settings.cats)) settings.cats = settings.level === 'off' || settings.boost === false ? [] : ['capitals', 'landmarks', 'geography'];
+  if (!Array.isArray(settings.cats)) settings.cats = settings.level === 'off' || settings.boost === false ? [] : ['capitals', 'orientation', 'landmarks'];
+  if (settings.catsV !== 2) { if (settings.cats.length && !settings.cats.includes('orientation')) settings.cats.splice(1, 0, 'orientation'); settings.catsV = 2; }
   const saveSettings = () => store.set(SET_KEY, settings);
 
   let M = null;      // current mode def
@@ -380,7 +381,7 @@
     const on = settings.cats;
     el.innerHTML = `<div class="lvl-title">🧠 Brain Boost questions — pick any topics</div>
       <div class="cat-chips">${Object.entries(CATS).map(([k, v]) => `<button data-c="${k}" class="${on.includes(k) ? 'on' : ''}" aria-pressed="${on.includes(k)}">${on.includes(k) ? '✓ ' : ''}${v.label}</button>`).join('')}</div>
-      <div class="lvl-desc">${on.length ? 'Geography means continents, plus deserts, rainforests, mountains and climate.' : 'No topics picked: no questions, and the wheel stays at 50%.'}</div>`;
+      <div class="lvl-desc">${on.length ? 'Listed from easiest to hardest. Where in the World = continents, hemispheres and compass directions. Land &amp; Nature = deserts, rainforests, mountains, climate and animals.' : 'No topics picked: no questions, and the wheel stays at 50%.'}</div>`;
     el.querySelectorAll('button').forEach((b) => b.onclick = () => {
       const k = b.dataset.c; settings.cats = on.includes(k) ? on.filter((x) => x !== k) : [...on, k];
       saveSettings(); sfx.click(); renderLevelPicker(el);
@@ -688,6 +689,22 @@
     return line;
   }
 
+  // "Northern & Western Hemispheres · west of Ohio"
+  function whereLine(r, world) {
+    const parts = [];
+    if (world) {
+      const h = hemispheres(r);
+      if (h) {
+        if (h.ns !== 'both' && h.ew !== 'both') parts.push(`${h.ns} & ${h.ew} Hemispheres`);
+        else if (h.ns === 'both' && h.ew === 'both') parts.push('crosses the equator and the Prime Meridian');
+        else if (h.ns === 'both') parts.push(`${h.ew} Hemisphere · crosses the equator`);
+        else parts.push(`${h.ns} Hemisphere · crosses the Prime Meridian`);
+      }
+    }
+    if (S && S.player && S.player !== r) { const d = directionFrom(S.player, r, false); if (d) parts.push(`${d} of ${esc(nameOf(S.player))}`); }
+    if (!parts.length) return '';
+    return world ? parts.join(' · ') : ` · ${parts.join(' · ')}`;
+  }
   function cardHTML(r, fact, featName) {
     const I = info(r); const us = M.key === 'us';
     const e = S.own[r];
@@ -713,7 +730,7 @@
     rows += `<li><span class="ico">📏</span><div><b>Size</b>${sizeLine(r)}</div></li>`;
     return `<img class="flag-big" src="${M.flag(r)}" alt="Flag of ${esc(I[0])}">
       <div class="cname">${esc(I[0])}</div>
-      ${us ? `<div class="sub">⭐ Capital: ${esc(I[1])}<span class="langs">🧭 Region: <b>${esc(continentOf(r))}</b></span></div>` : `<div class="sub">⭐ Capital: ${esc(I[1])}<span class="langs">🌎 Continent: <b>${esc(TWO_CONTINENTS[r] ? TWO_CONTINENTS[r].join(' & ') : continentOf(r))}</b></span><span class="langs">🗣️ Language: <b>${esc(I[2])}</b>${I[3] ? `<br><span class="also">Also spoken: ${esc(I[3])}</span>` : ''}</span></div>`}
+      ${us ? `<div class="sub">⭐ Capital: ${esc(I[1])}<span class="langs">🧭 Region: <b>${esc(continentOf(r))}</b>${whereLine(r)}</span></div>` : `<div class="sub">⭐ Capital: ${esc(I[1])}<span class="langs">🌎 Continent: <b>${esc(TWO_CONTINENTS[r] ? TWO_CONTINENTS[r].join(' & ') : continentOf(r))}</b></span>${whereLine(r, true) ? `<span class="langs">🧭 ${whereLine(r, true)}</span>` : ''}<span class="langs">🗣️ Language: <b>${esc(I[2])}</b>${I[3] ? `<br><span class="also">Also spoken: ${esc(I[3])}</span>` : ''}</span></div>`}
       ${status}
       <div class="didyou" id="factBox"><b>💡 Did you know?</b><span id="factText">${esc(fact)}</span></div>
       <div class="card-tools"><button class="chip" id="readAloud">🔊 Read aloud</button><button class="chip" id="moreFact">🔀 Another fact</button><button class="chip" id="zoomTo">🔎 Zoom to it</button></div>
@@ -810,11 +827,36 @@
      Both questions are always about the place you are battling, and every answer is shown
      on that place's card — so reading the card is how you get the answers right. */
   // Question topics — pick any mix. Each topic has two kinds of question about the place you're battling.
+  // Topics, roughly easiest to hardest. Pick any mix.
   const CATS = {
     capitals: { label: '⭐ Capitals', kinds: ['capital', 'capitalReverse'] },
+    orientation: { label: '🧭 Where in the World', kinds: ['continent', 'hemisphere', 'direction'] },
     landmarks: { label: '🏛️ Famous Landmarks', kinds: ['place', 'placeReverse'] },
-    geography: { label: '🌎 Geography', kinds: ['continent', 'land'] }
+    geography: { label: '🌿 Land & Nature', kinds: ['land', 'animal'] },
+    flags: { label: '🚩 Flags', kinds: ['flag', 'flagReverse'] }
   };
+  // ---- where a place is: hemispheres and compass directions ----
+  const mainFeature = (c) => { const fs = map.byRegion.get(c) || []; return fs.find((x) => x.id === c) || fs[0]; };
+  function hemispheres(r) {
+    const f = mainFeature(r); if (!f) return null;
+    // use the main body of land (so e.g. the Netherlands' Caribbean islands don't count)
+    const [[w, sLat], [e, nLat]] = (f._mb = f._mb || d3.geoBounds(f.mainPoly || f)), [lon, lat] = f.lp;
+    const ns = sLat < 0 && nLat > 0 ? 'both' : lat >= 0 ? 'Northern' : 'Southern';
+    // only the Prime Meridian (0°) splits East and West here; places crossing the 180° line count by where most of the land is
+    const crossesPM = w < e && w < 0 && e > 0;
+    const ew = crossesPM ? 'both' : lon < 0 ? 'Western' : 'Eastern';
+    return { ns, ew };
+  }
+  const DIRS = ['north', 'northeast', 'east', 'southeast', 'south', 'southwest', 'west', 'northwest'];
+  // direction on the flat map from place a to place b; null if it's too close to call
+  function directionFrom(a, b, strict) {
+    const fa = mainFeature(a), fb = mainFeature(b); if (!fa || !fb) return null;
+    const dx = ((fb.lp[0] - fa.lp[0] + 540) % 360) - 180, dy = fb.lp[1] - fa.lp[1];
+    const ang = (Math.atan2(dx, dy) * 180 / Math.PI + 360) % 360;
+    const i = Math.round(ang / 45) % 8, off = Math.abs(((ang - i * 45 + 540) % 360) - 180);
+    if (strict && off > 15) return null; // too close to the line between two directions
+    return DIRS[i];
+  }
   // Countries that sit on two continents: the first is the answer, the second is never offered as a wrong answer.
   const TWO_CONTINENTS = { RU: ['Europe', 'Asia'], TR: ['Asia', 'Europe'], KZ: ['Asia', 'Europe'], GE: ['Asia', 'Europe'], AZ: ['Asia', 'Europe'], AM: ['Asia', 'Europe'], CY: ['Europe', 'Asia'], EG: ['Africa', 'Asia'] };
   const US_REGION = {}; // U.S. Census Bureau regions
@@ -876,6 +918,32 @@
       return { q: M.key === 'us' ? `Which part of the U.S. is ${nameOf(r)} in?` : `Which continent is ${nameOf(r)} in?`, opts, ans,
         explain: two ? `${nameOf(r)} is in ${two[0]} — and part of it is in ${two[1]} too!` : `${nameOf(r)} is in ${M.key === 'us' ? 'the ' : ''}${ans}.` };
     },
+    hemisphere(r) {
+      const h = hemispheres(r);
+      if (M.key === 'us' || !h || (h.ns === 'both' && h.ew === 'both')) return Qs.continent(r);
+      if (h.ns !== 'both' && (h.ew === 'both' || Math.random() < 0.6)) {
+        const ans = `${h.ns} Hemisphere`;
+        return { q: `Is ${nameOf(r)} north or south of the equator?`, opts: ['Northern Hemisphere', 'Southern Hemisphere'], ans,
+          explain: `${nameOf(r)} is in the ${ans}: ${h.ns === 'Northern' ? 'north' : 'south'} of the equator.` };
+      }
+      const ans = `${h.ew} Hemisphere`;
+      return { q: `Is ${nameOf(r)} in the Eastern or Western Hemisphere?`, opts: ['Eastern Hemisphere', 'Western Hemisphere'], ans,
+        explain: `${nameOf(r)} is in the ${ans}: ${h.ew === 'Eastern' ? 'east' : 'west'} of the Prime Meridian.` };
+    },
+    direction(r) {
+      const from = S.player; const d = from && from !== r ? directionFrom(from, r, true) : null;
+      if (!d) return M.key === 'us' ? Qs.continent(r) : Qs.hemisphere(r);
+      const cardinal = DIRS.indexOf(d) % 2 === 0;
+      const opts = cardinal ? ['north', 'east', 'south', 'west'] : ['northeast', 'southeast', 'southwest', 'northwest'];
+      const cap = (x) => x[0].toUpperCase() + x.slice(1);
+      return { q: `🧭 Which direction is ${nameOf(r)} from ${nameOf(from)}? (Use the compass!)`, opts: opts.map(cap), ans: cap(d),
+        explain: `${nameOf(r)} is ${d} of ${nameOf(from)}.` };
+    },
+    flagReverse(r) {
+      const opts = [nameOf(r)];
+      for (const c of farAway(r)) { if (!opts.includes(nameOf(c))) opts.push(nameOf(c)); if (opts.length === 4) break; }
+      return { q: `Whose flag is this?`, img: M.flag(r), opts: shuffle(opts), ans: nameOf(r), explain: `That is the flag of ${nameOf(r)}.` };
+    },
     flag(r) {
       const opts = [r];
       for (const c of farAway(r)) { if (!opts.some((o) => looksLike(o, c))) opts.push(c); if (opts.length === 4) break; }
@@ -921,9 +989,9 @@
     const cats = settings.cats.filter((c) => CATS[c]);
     const turn = S.qTurn || 0; S.qTurn = turn + 1; save();
     let kinds;
-    if (cats.length === 1) kinds = CATS[cats[0]].kinds; // one topic: both of its question kinds
+    if (cats.length === 1) kinds = shuffle(CATS[cats[0]].kinds).slice(0, 2); // one topic: two of its question kinds
     else { // several topics: two different topics each battle, taking turns
-      const first = { capitals: 'capital', landmarks: 'place', geography: pick(['continent', 'land']) };
+      const first = { capitals: 'capital', orientation: pick(['continent', 'hemisphere', 'direction']), landmarks: 'place', geography: pick(['land', 'animal']), flags: pick(['flag', 'flagReverse']) };
       kinds = [first[cats[turn % cats.length]], first[cats[(turn + 1) % cats.length]]];
     }
     return kinds.map((k) => Qs[k](clicked));
@@ -983,7 +1051,7 @@
   function askQ(B, qs, i) {
     const Q = qs[i];
     $('#stage').innerHTML = `<p class="center small">🧠 <b>Question ${i + 1} of 2</b> — ${i === 0 ? 'right answers raise your chance of winning! (Hint: the answers are on the card you just read.)' : 'one more chance to raise your odds!'}</p>
-      <div class="quiz-q">${esc(Q.q)}</div>
+      <div class="quiz-q">${esc(Q.q)}</div>${Q.img ? `<img class="quiz-flag" src="${Q.img}" alt="A flag">` : ''}
       <div class="quiz-opts">${Q.opts.map((o, k) => `<button data-k="${k}">${Q.kind === 'flag' ? `<img src="${M.flag(o)}" alt="A flag">` : esc(o)}</button>`).join('')}</div>
       <div id="qres"></div>`;
     const btns = card.querySelectorAll('.quiz-opts button');

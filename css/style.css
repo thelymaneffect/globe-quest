@@ -237,3 +237,4 @@ p.center{text-align:center}
 .stake.on{border-color:var(--gold-dark);background:#fff6dc;box-shadow:0 2px 0 var(--gold-dark)}
 .record{background:#fff6dc;border-radius:12px;padding:8px 12px;font-weight:800}
 @media (max-width:520px){.stakes-row{grid-template-columns:1fr}}
+.quiz-flag{display:block;margin:0 auto 12px;height:90px;max-width:100%;border-radius:6px;box-shadow:0 2px 8px rgba(0,0,0,.2)}
