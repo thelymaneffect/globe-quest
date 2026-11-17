@@ -55,8 +55,8 @@
       <ol>
         <li>Choose the country (or state) you want to be, and pick your empire color.</li>
         <li>Tap <b>any</b> place on the map to learn about it, then press <b>Challenge</b>.</li>
-        <li>The battle wheel starts split in half (<b>1/2</b> for you, <b>1/2</b> for them).</li>
-        <li><b>Brain Boost:</b> answer two questions. Each right answer makes your slice bigger (1/2 → 3/4 → 7/8). Each wrong answer makes theirs bigger. Pick <b>Easy</b> (continents, flags, animals), <b>Medium</b> (capitals, languages, land &amp; weather) or <b>Hard</b> (famous places, foods &amp; traditions, nature). The questions are always about the place you’re battling, and the answers are on its card!</li>
+        <li>The battle wheel starts split in half: a <b>50%</b> chance for you and <b>50%</b> for them.</li>
+        <li><b>Brain Boost:</b> answer two questions. Each right answer raises your chance of winning (50% → 75% → 87.5%). Each wrong answer raises theirs. Pick any topics you like: <b>Capitals</b>, <b>Famous Landmarks</b> and <b>Geography</b>. The questions are always about the place you’re battling, and the answers are on its card!</li>
         <li>Spin the wheel! If it lands on your color, you take over their whole empire. If it lands on theirs, they take over yours.</li>
         <li>If you lose, choose a new country to play as from the ones still standing.</li>
         <li>Own the whole map to win! Zoom in to see capitals ★, cities ●, rivers and mountains.</li>
@@ -87,6 +87,20 @@
   <div class="search">
     <input id="search" type="search" placeholder="🔎 Find a place…" autocomplete="off" list="placeList">
     <datalist id="placeList"></datalist>
+  </div>
+  <div class="compass" title="Compass: the red needle points north">
+    <svg id="compassRose" viewBox="-50 -50 100 100" aria-hidden="true">
+      <circle r="46" fill="#fff" stroke="#1d2a3a" stroke-width="3"/>
+      <circle r="38" fill="none" stroke="#e5ddcc" stroke-width="1.5"/>
+      <path d="M0,-34 L7,0 L0,6 L-7,0 Z" fill="#e2483d"/>
+      <path d="M0,34 L7,0 L0,-6 L-7,0 Z" fill="#9aa5b1"/>
+      <path d="M-34,0 L0,5 L0,-5 Z M34,0 L0,5 L0,-5 Z" fill="#cfd6de"/>
+      <circle r="4" fill="#1d2a3a"/>
+      <text y="-37" text-anchor="middle" dominant-baseline="central" font-family="Fredoka, sans-serif" font-weight="700" font-size="13" fill="#e2483d">N</text>
+      <text x="38" text-anchor="middle" dominant-baseline="central" font-family="Fredoka, sans-serif" font-weight="700" font-size="11" fill="#1d2a3a">E</text>
+      <text y="38" text-anchor="middle" dominant-baseline="central" font-family="Fredoka, sans-serif" font-weight="700" font-size="11" fill="#1d2a3a">S</text>
+      <text x="-38" text-anchor="middle" dominant-baseline="central" font-family="Fredoka, sans-serif" font-weight="700" font-size="11" fill="#1d2a3a">W</text>
+    </svg>
   </div>
   <div class="zoomctl">
     <button id="zIn" aria-label="Zoom in">+</button>

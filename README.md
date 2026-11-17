@@ -9,7 +9,7 @@ No accounts, no ads, no tracking. Progress saves automatically in the player's o
 2. Tap the place you want to be, then pick your empire color.
 3. Tap **any** place on the map to see its card, then press **Challenge**.
 4. The battle wheel starts at 1/2 for you and 1/2 for them.
-5. **Brain Boost** (optional): pick **Easy** (continents, flags, animals), **Medium** (capitals, languages, land & weather) or **Hard** (famous places, foods & traditions, nature). Both questions are about the place you are battling, and every answer is on its card. Right answers grow your slice (1/2 → 3/4 → 7/8); wrong answers grow theirs (1/2 → 1/4 → 1/8). A great way to practice fractions too!
+5. **Brain Boost** (optional): pick any topics: **Capitals**, **Famous Landmarks** and **Geography**. Both questions are about the place you are battling, and every answer is on its card. Right answers raise your chance (50% → 75% → 87.5%); wrong answers raise theirs. The fractions are shown too (1/2, 3/4, 7/8) for extra math practice.
 6. Spin! Land on your color and you take their whole empire. Land on theirs and they take yours, and you respawn as any place still standing.
 7. Own the whole map to win.
 

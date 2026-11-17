@@ -177,7 +177,7 @@ p.center{text-align:center}
 .wheel-wrap{position:relative;width:230px;height:230px;margin:4px auto 6px}
 .wheel{width:100%;height:100%;transform-origin:50% 50%;filter:drop-shadow(0 6px 14px rgba(0,0,0,.25))}
 .pointer{position:absolute;top:-6px;left:50%;transform:translateX(-50%);width:0;height:0;border-left:16px solid transparent;border-right:16px solid transparent;border-top:28px solid var(--ink);z-index:2;filter:drop-shadow(0 2px 2px rgba(0,0,0,.3))}
-.slice-label{font:800 13px Nunito,sans-serif;fill:#fff;paint-order:stroke;stroke:rgba(0,0,0,.35);stroke-width:3px}
+.slice-label{font:700 9px Nunito,sans-serif;opacity:.85;fill:#fff;paint-order:stroke;stroke:rgba(0,0,0,.35);stroke-width:3px}
 .wheel-key{display:flex;gap:16px;justify-content:center;flex-wrap:wrap;font-weight:800;margin-bottom:8px}
 .wheel-key span{display:flex;align-items:center;gap:6px}
 .wheel-key i{width:18px;height:18px;border-radius:5px;display:inline-block;border:2px solid #fff;box-shadow:0 0 0 1px rgba(0,0,0,.2)}
@@ -215,3 +215,13 @@ p.center{text-align:center}
 .offline-badge.ready{background:#e5f6ec;border-color:#2e9e5b;color:#1d6e3e}
 .install-btn{border:none;border-radius:999px;padding:12px 18px;font-family:var(--head);font-weight:600;font-size:17px;background:var(--ink);color:#fff;box-shadow:var(--shadow)}
 .install-btn:hover{background:#2b3d55}
+.frac{font-size:.72em;color:var(--ink-soft);font-weight:700}
+.cat-chips{display:flex;gap:8px;justify-content:center;flex-wrap:wrap}
+.cat-chips button{border:2px solid var(--line);background:#fff;border-radius:999px;padding:9px 16px;font-weight:800;font-size:15px}
+.cat-chips button.on{background:var(--gold);border-color:var(--gold-dark);box-shadow:0 2px 0 var(--gold-dark)}
+.compass{position:absolute;left:12px;top:12px;width:64px;height:64px;z-index:4;filter:drop-shadow(0 3px 6px rgba(0,0,0,.25));pointer-events:none}
+.compass svg{width:100%;height:100%;transition:transform .08s linear}
+@media (max-width:640px){.compass{width:52px;height:52px}}
+.chip.stop{background:var(--red);border-color:var(--red);color:#fff}
+.voice-help{padding-left:20px;line-height:1.5}
+.voice-help li{margin:8px 0}

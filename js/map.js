@@ -249,7 +249,7 @@
 
     draw() {
       if (this._raf) return;
-      this._raf = requestAnimationFrame(() => { this._raf = null; this._render(); });
+      this._raf = requestAnimationFrame(() => { this._raf = null; this._render(); this.onRender && this.onRender(); });
     }
 
     _render() {
@@ -383,9 +383,11 @@
         const tw = ctx.measureText(name).width;
         if (sizePx < tw * 0.9) continue;
         const s = this._toScreen(f.lp); if (!s) continue;
-        if (!tryLabel(s[0], s[1], tw, fsz)) continue;
+        const owner = this.labelOwner ? this.labelOwner(f.o) : null;
+        if (!tryLabel(s[0], s[1] + (owner ? fsz * 0.45 : 0), tw, owner ? fsz * 1.9 : fsz)) continue;
         seen.add(f.o);
         text(name, s[0], s[1], `800 ${fsz}px Nunito, sans-serif`, COL.label, 3.5);
+        if (owner) { const f2 = Math.max(10, fsz * 0.72); text(`(${owner})`, s[0], s[1] + fsz * 0.95, `italic 700 ${f2}px Nunito, sans-serif`, '#3a4a5e', 3); }
       }
 
       drawPlaces(true);
@@ -419,6 +421,15 @@
           }
         }
       }
+    }
+
+    // which way is north on screen, in degrees clockwise from straight up (0 on the flat map)
+    northAngle() {
+      if (this.view === '2d') return 0;
+      const c = [-this.rot[0], -this.rot[1]], p = this._proj();
+      const a = p(c), b = p([c[0], Math.min(89.5, c[1] + 0.5)]);
+      if (!a || !b) return 0;
+      return Math.atan2(b[0] - a[0], a[1] - b[1]) * 180 / Math.PI;
     }
 
     _isTiny(f, scale) { return f.o && f.id === f.o && f.area * scale * scale < 5; }

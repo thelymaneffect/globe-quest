@@ -34,7 +34,7 @@
   const DETAIL_SCRIPTS = ['data/places.js', 'data/rivers.js', 'data/lakes.js', 'data/features.js'];
 
   let settings = Object.assign({ sound: true, view: '2d', legendOpen: window.innerWidth > 900 }, store.get(SET_KEY) || {});
-  if (!settings.level) settings.level = settings.boost === false ? 'off' : 'medium';
+  if (!Array.isArray(settings.cats)) settings.cats = settings.level === 'off' || settings.boost === false ? [] : ['capitals', 'landmarks', 'geography'];
   const saveSettings = () => store.set(SET_KEY, settings);
 
   let M = null;      // current mode def
@@ -94,7 +94,28 @@
   const regionsOf = (emp) => regions.filter((r) => S.own[r] === emp);
   const empires = () => { const m = new Map(); for (const r of regions) { const e = S.own[r]; m.set(e, (m.get(e) || 0) + 1); } return m; };
   const empireLabel = (e) => { const n = regionsOf(e).length; return n > 1 ? `${nameOf(e)}’s empire` : nameOf(e); };
-  const colorOf = (r) => { const e = S && S.own ? S.own[r] : r; if (S && S.player && e === S.player) return S.color; return colorAI[e] || '#e4ddd0'; };
+  // Bold, one-of-a-kind colors for computer empires once they own more than one place,
+  // so it's easy to see who took over what. (Free places keep the soft map colors.)
+  const EMPIRE_COLORS = ['#d1495b', '#00798c', '#e09f3e', '#4f9d69', '#8d6cab', '#2e86ab', '#c06c84', '#bc6c25', '#3a5a40', '#9c6644', '#5e60ce', '#e76f51', '#118ab2', '#a4133c', '#6a994e', '#7b2cbf'];
+  const nearColor = (a, b) => { const x = d3.rgb(a), y = d3.rgb(b); return Math.hypot(x.r - y.r, x.g - y.g, x.b - y.b) < 110; };
+  function empireColor(e) {
+    S.empColor = S.empColor || {};
+    if (S.empColor[e] && S.color && e !== S.player && nearColor(S.empColor[e], S.color)) delete S.empColor[e]; // too close to yours: pick another
+    if (!S.empColor[e]) {
+      const used = new Set(Object.values(S.empColor));
+      const near = nearColor;
+      const ok = EMPIRE_COLORS.filter((c) => !S.color || !near(c, S.color));
+      S.empColor[e] = ok.find((c) => !used.has(c)) || ok[Object.keys(S.empColor).length % ok.length];
+    }
+    return S.empColor[e];
+  }
+  const empireSize = (e) => { let n = 0; for (const r of regions) if (S.own[r] === e) n++; return n; };
+  const colorOf = (r) => {
+    const e = S && S.own ? S.own[r] : r;
+    if (S && S.player && e === S.player) return S.color;
+    if (S && S.own && empireSize(e) > 1) return empireColor(e);
+    return colorAI[e] || '#e4ddd0';
+  };
 
   /* ---------------- modal ---------------- */
   const modal = $('#modal'), card = $('#modalCard');
@@ -175,10 +196,10 @@
   const withThe = (s, re) => (/^(The|the|A|An) /.test(s) || /, the /.test(s) || !re.test(s) ? s : 'the ' + s);
   const forSpeech = (s) => String(s).replace(/\s*\(([^)]*)\)/g, ', $1,').replace(/,\s*,/g, ',').replace(/,\s*([.!?])/g, '$1').replace(/[“”]/g, '"').trim().replace(/,$/, '');
   // queue a list of lines: [{ text, mood: 'excited'|'question'|'calm', voice }]
-  let speechId = 0;
-  function speakLines(lines, defaultVoice) {
+  let speechId = 0, onSpeechDone = null;
+  function speakLines(lines, defaultVoice, done) {
     if (!('speechSynthesis' in window)) return;
-    stopSpeech(); const myId = ++speechId;
+    stopSpeech(); const myId = ++speechId; onSpeechDone = done || null;
     const jitter = (n) => (Math.random() * 2 - 1) * n;
     lines.forEach((ln, i) => {
       const u = new SpeechSynthesisUtterance(ln.text);
@@ -187,11 +208,30 @@
       u.rate = ({ excited: 1.0, question: 0.96, calm: 0.94, word: 0.82 }[mood] || 0.94) + jitter(0.03);
       u.pitch = ({ excited: 1.14, question: 1.08, calm: 1.0, word: 1.05 }[mood] || 1) + jitter(i % 2 ? 0.05 : 0.03);
       u.volume = 1;
+      if (i === lines.length - 1) u.onend = u.onerror = () => { if (myId === speechId) { const f = onSpeechDone; onSpeechDone = null; f && f(); } };
       if (myId === speechId) speechSynthesis.speak(u);
     });
   }
   function speak(text, voice) { speakLines(String(text).match(/[^.!?]+[.!?]+["”]?|[^.!?]+$/g).map((t) => ({ text: t.trim() })).filter((l) => l.text), voice || pickVoice(['en-US'])); }
-  function stopSpeech() { if ('speechSynthesis' in window) speechSynthesis.cancel(); }
+  function stopSpeech() {
+    speechId++;
+    if ('speechSynthesis' in window) speechSynthesis.cancel();
+    const f = onSpeechDone; onSpeechDone = null; f && f();
+  }
+  // true when the device has a natural-sounding ("Enhanced"/"Premium") voice for this accent
+  const hasNaturalVoice = (prefs) => { const v = pickVoice(prefs); return !!(v && /Premium|Enhanced|Neural|Natural/i.test(v.name)); };
+  function showVoiceHelp() {
+    openModal(`<h3 class="mtitle">🗣️ Get a more natural voice</h3>
+      <p class="center">Read Aloud uses the voices built into your device. Most devices start with basic voices that sound robotic. You can download free, natural-sounding ones (they also work in airplane mode):</p>
+      <ul class="voice-help">
+        <li><b>iPad / iPhone:</b> Settings → Accessibility → Spoken Content → Voices → English. Pick voices marked <b>Enhanced</b> or <b>Premium</b> and tap download. Good ones for different accents: American, British, Irish, Australian, Indian and South African.</li>
+        <li><b>Mac:</b> System Settings → Accessibility → Spoken Content → System Voice → <b>Manage Voices…</b> Download <b>Premium</b> or <b>Enhanced</b> English voices.</li>
+        <li><b>Android:</b> Settings → Accessibility → Text-to-speech → Google engine → Install voice data → download the high-quality English voices.</li>
+        <li><b>Windows:</b> Settings → Time &amp; language → Speech → Manage voices → add <b>Natural</b> voices.</li>
+      </ul>
+      <p class="small center">Then close and reopen the game. It automatically picks the best voice for each country’s accent.</p>
+      <div class="btn-row"><button class="btn gold" data-close>Got it!</button></div>`);
+  }
   function sayHello(r) {
     const narrator = pickVoice(accentFor(r));
     const lines = [];
@@ -265,6 +305,12 @@
     else if (e.target.closest('[data-request]')) { sfx.click(); showRequest(); }
   });
 
+  /* ================= COMPASS ================= */
+  function updateCompass() {
+    const el = $('#compassRose'); if (!el || !map) return;
+    el.style.transform = `rotate(${-map.northAngle()}deg)`;
+  }
+
   /* ================= TITLE SCREEN ================= */
   function showTitle() {
     $('#title').hidden = false; $('#hud').hidden = true; $('#mapwrap').hidden = true; updateInstallBtn(); if (typeof updateOfflineBadge === 'function') updateOfflineBadge();
@@ -294,8 +340,14 @@
     } else startMode(k, null);
   }));
   function renderLevelPicker(el) {
-    el.innerHTML = `<div class="lvl-title">🧠 Brain Boost questions</div><div class="lvl-seg">${Object.entries(LEVELS).map(([k, v]) => `<button data-l="${k}" class="${settings.level === k ? 'on' : ''}">${v.label}</button>`).join('')}</div><div class="lvl-desc">${LEVELS[settings.level].desc}</div>`;
-    el.querySelectorAll('button').forEach((b) => b.onclick = () => { settings.level = b.dataset.l; saveSettings(); sfx.click(); renderLevelPicker(el); });
+    const on = settings.cats;
+    el.innerHTML = `<div class="lvl-title">🧠 Brain Boost questions — pick any topics</div>
+      <div class="cat-chips">${Object.entries(CATS).map(([k, v]) => `<button data-c="${k}" class="${on.includes(k) ? 'on' : ''}" aria-pressed="${on.includes(k)}">${on.includes(k) ? '✓ ' : ''}${v.label}</button>`).join('')}</div>
+      <div class="lvl-desc">${on.length ? 'Geography means continents, plus deserts, rainforests, mountains and climate.' : 'No topics picked: no questions, and the wheel stays at 50%.'}</div>`;
+    el.querySelectorAll('button').forEach((b) => b.onclick = () => {
+      const k = b.dataset.c; settings.cats = on.includes(k) ? on.filter((x) => x !== k) : [...on, k];
+      saveSettings(); sfx.click(); renderLevelPicker(el);
+    });
   }
   $('#setSound').addEventListener('change', (e) => { settings.sound = e.target.checked; saveSettings(); updateSoundBtn(); });
 
@@ -324,6 +376,8 @@
     map.colorOf = colorOf;
     map.empireOf = (r) => (S ? S.own[r] : r);
     map.labelName = (r) => (M.key === 'us' ? nameOf(r) : (info(r) ? info(r)[0].replace(/ \(.*\)$/, '') : r));
+    map.labelOwner = (r) => (S && S.own && S.own[r] && S.own[r] !== r ? (S.own[r] === S.player ? 'You' : nameOf(S.own[r]).replace(/ \(.*\)$/, '')) : null);
+    map.onRender = updateCompass;
     map.view = settings.view;
     map.setMode(key, feats, topo, M.obj);
     map.setView(settings.view);
@@ -391,7 +445,7 @@
     const top = [...em.entries()].filter(([e, n]) => n > 1 && e !== S.player).sort((a, b) => b[1] - a[1]).slice(0, 4);
     let html = `<h4>Map key <button id="lgToggle" aria-label="Show or hide key">${settings.legendOpen ? '▾' : '▸'}</button></h4><div class="body">`;
     if (S.player) html += `<div class="row"><span class="sw" style="background:${S.color};box-shadow:0 0 0 2px #fff inset"></span>You (${esc(nameOf(S.player))})</div>`;
-    for (const [e, n] of top) html += `<div class="row"><span class="sw" style="background:${colorAI[e]}"></span>${esc(nameOf(e))}’s empire (${n})</div>`;
+    for (const [e, n] of top) html += `<div class="row"><span class="sw" style="background:${empireColor(e)}"></span>${esc(nameOf(e))}’s empire (${n})</div>`;
     html += `<div class="row"><span class="sw" style="background:repeating-linear-gradient(45deg,#f6d7a7 0 4px,#cfe3b5 4px 8px,#c9d8ef 8px 12px)"></span>Free ${M.units}</div>`;
     html += `<div class="row"><span class="sym" style="color:#d62828">★</span>Capital city</div><div class="row"><span class="sym">●</span>Major city</div>
       <div class="row"><span class="sym" style="color:#4f97cf">〰</span>River</div><div class="row"><span class="sym" style="color:#7a5230">▲</span>Mountains</div></div>`;
@@ -554,10 +608,11 @@
       ${status}
       <div class="didyou" id="factBox"><b>💡 Did you know?</b><span id="factText">${esc(fact)}</span></div>
       <div class="card-tools"><button class="chip" id="readAloud">🔊 Read aloud</button><button class="chip" id="moreFact">🔀 Another fact</button><button class="chip" id="zoomTo">🔎 Zoom to it</button></div>
-      <ul class="facts">${rows}</ul>`;
+      <ul class="facts">${rows}</ul>
+      ${'speechSynthesis' in window && !hasNaturalVoice(accentFor(r)) ? '<p class="small center"><a href="#" id="voiceHelp">🗣️ Voice sounds robotic? Get a more natural voice</a></p>' : ''}`;
   }
 
-  function readCard(r) {
+  function readCard(r, done) {
     const I = info(r), us = M.key === 'us';
     const fact = $('#factText') ? $('#factText').textContent : '';
     const narrator = pickVoice(accentFor(r));
@@ -597,11 +652,17 @@
     const nat = nature(r);
     if (nat.animal) L.push({ text: `Keep an eye out for the ${forSpeech(nat.animal).replace(/,.*$/, '')}!` });
     if (nat.lands.length) L.push({ text: `Here you'll find ${listJoin(nat.lands.map((k) => LANDS[k][0]))}.` });
-    speakLines(L, narrator);
+    speakLines(L, narrator, done);
   }
 
   function wireCardTools(r) {
-    $('#readAloud').onclick = () => readCard(r);
+    const ra = $('#readAloud');
+    const reset = () => { if (ra.isConnected) { ra.textContent = '🔊 Read aloud'; ra.classList.remove('stop'); } };
+    ra.onclick = () => {
+      if (ra.classList.contains('stop')) { stopSpeech(); reset(); return; }
+      readCard(r, reset); ra.textContent = '⏹ Stop'; ra.classList.add('stop');
+    };
+    const vh = $('#voiceHelp'); if (vh) vh.onclick = (e) => { e.preventDefault(); stopSpeech(); showVoiceHelp(); };
     $('#moreFact').onclick = () => { $('#factText').textContent = nextFact(r); sfx.click(); };
     $('#zoomTo').onclick = () => { closeModal(); map.flyTo(r); };
     const hi = $('#sayHi'); if (hi) hi.onclick = () => sayHello(r);
@@ -636,11 +697,11 @@
   /* ---------- Brain Boost questions ----------
      Both questions are always about the place you are battling, and every answer is shown
      on that place's card — so reading the card is how you get the answers right. */
-  const LEVELS = {
-    off: { label: 'Off', desc: 'No questions — the wheel stays 50/50.' },
-    easy: { label: 'Easy', desc: 'Continents, flags and animals.' },
-    medium: { label: 'Medium', desc: 'Capitals, languages, and land & weather.' },
-    hard: { label: 'Hard', desc: 'Famous places, foods & traditions, and nature.' }
+  // Question topics — pick any mix. Each topic has two kinds of question about the place you're battling.
+  const CATS = {
+    capitals: { label: '⭐ Capitals', kinds: ['capital', 'capitalReverse'] },
+    landmarks: { label: '🏛️ Famous Landmarks', kinds: ['place', 'placeReverse'] },
+    geography: { label: '🌎 Geography', kinds: ['continent', 'land'] }
   };
   // Countries that sit on two continents: the first is the answer, the second is never offered as a wrong answer.
   const TWO_CONTINENTS = { RU: ['Europe', 'Asia'], TR: ['Asia', 'Europe'], KZ: ['Asia', 'Europe'], GE: ['Asia', 'Europe'], AZ: ['Asia', 'Europe'], AM: ['Asia', 'Europe'], CY: ['Europe', 'Asia'], EG: ['Africa', 'Asia'] };
@@ -712,6 +773,16 @@
       const c = choices(r, (s) => info(s)[5].split(' (')[0]);
       return { q: `What is the state bird of ${nameOf(r)}?`, ...c, explain: `The state bird of ${nameOf(r)} is the ${c.ans.toLowerCase()}.` };
     },
+    capitalReverse(r) {
+      const cap = shortCap(r); const opts = [nameOf(r)];
+      for (const c of farAway(r)) { if (shortCap(c) !== cap && !opts.includes(nameOf(c))) opts.push(nameOf(c)); if (opts.length === 4) break; }
+      return { q: `${cap} is the capital of which ${M.unit}?`, opts: shuffle(opts), ans: nameOf(r), explain: `${cap} is the capital of ${nameOf(r)}.` };
+    },
+    placeReverse(r) {
+      const place = extra(r)[0]; const opts = [nameOf(r)];
+      for (const c of farAway(r)) { if (!opts.includes(nameOf(c))) opts.push(nameOf(c)); if (opts.length === 4) break; }
+      return { q: `Where would you find ${withThe(place, NEEDS_THE_PLACE)}?`, opts: shuffle(opts), ans: nameOf(r), explain: `${place} is in ${nameOf(r)}.` };
+    },
     capital(r) {
       const c = choices(r, shortCap);
       return { q: `What is the capital of ${nameOf(r)}?`, ...c, explain: `The capital of ${nameOf(r)} is ${c.ans}.` };
@@ -735,12 +806,15 @@
     }
   };
   function buildQuestions(enemy, clicked) {
-    const us = M.key === 'us';
-    // each level has three kinds of question; every battle uses the next two in line, so they take turns
-    const pool = { easy: ['continent', us ? 'bird' : 'flag', 'animal'], medium: ['capital', us ? 'nickname' : 'language', 'land'],
-      hard: ['place', 'tradition', Math.random() < 0.5 ? 'animal' : 'land'] }[settings.level] || ['capital', 'continent', 'animal'];
-    const turn = S.qTurn || 0; S.qTurn = turn + 2; save();
-    return [pool[turn % 3], pool[(turn + 1) % 3]].map((k) => Qs[k](clicked));
+    const cats = settings.cats.filter((c) => CATS[c]);
+    const turn = S.qTurn || 0; S.qTurn = turn + 1; save();
+    let kinds;
+    if (cats.length === 1) kinds = CATS[cats[0]].kinds; // one topic: both of its question kinds
+    else { // several topics: two different topics each battle, taking turns
+      const first = { capitals: 'capital', landmarks: 'place', geography: pick(['continent', 'land']) };
+      kinds = [first[cats[turn % cats.length]], first[cats[(turn + 1) % cats.length]]];
+    }
+    return kinds.map((k) => Qs[k](clicked));
   }
 
   function versusHTML(enemy) {
@@ -754,7 +828,9 @@
   /* ---------- the fraction wheel ---------- */
   const gcd = (a, b) => (b ? gcd(b, a % b) : a);
   const frac = (m, n) => { const g = gcd(m, n); return `${m / g}/${n / g}`; };
-  const enemyWheelColor = (e) => d3.color(colorAI[e] || '#9aa5b1').darker(1.1).formatHex();
+  const pct = (m, n) => `${Math.round(m / n * 1000) / 10}%`.replace('.5%', '.5%');
+  const odds = (m, n) => `<b>${pct(m, n)}</b> <small class="frac">(${frac(m, n)})</small>`;
+  const enemyWheelColor = (e) => (empireSize(e) > 1 ? empireColor(e) : d3.color(colorAI[e] || '#9aa5b1').darker(1.1).formatHex());
   function wheelSVG(mine, total, enemy) {
     const R = 100, c = 110, me = S.color, them = enemyWheelColor(enemy);
     let out = '';
@@ -772,8 +848,8 @@
   function drawWheel(B, pop) {
     const box = $('#wheelBox');
     box.innerHTML = `<div class="wheel-wrap"><div class="pointer"></div>${wheelSVG(B.mine, B.total, B.enemy)}</div>
-      <div class="wheel-key"><span><i style="background:${S.color}"></i>★ You: <b>${frac(B.mine, B.total)}</b></span>
-      <span><i style="background:${enemyWheelColor(B.enemy)}"></i>${esc(nameOf(B.enemy))}: <b>${frac(B.total - B.mine, B.total)}</b></span></div>`;
+      <div class="wheel-key"><span><i style="background:${S.color}"></i>★ You: ${odds(B.mine, B.total)}</span>
+      <span><i style="background:${enemyWheelColor(B.enemy)}"></i>${esc(nameOf(B.enemy))}: ${odds(B.total - B.mine, B.total)}</span></div>`;
     if (pop) $('#wheel').animate([{ transform: 'scale(.85)' }, { transform: 'scale(1.06)' }, { transform: 'scale(1)' }], { duration: 450, easing: 'ease-out' });
   }
 
@@ -782,14 +858,14 @@
     openModal(`<h3 class="mtitle">⚔️ Battle!</h3>${versusHTML(enemy)}<div id="wheelBox"></div><div id="stage"></div>`, { noClose: true });
     card.insertAdjacentHTML('afterbegin', '<span data-lock></span>');
     drawWheel(B);
-    if (settings.level === 'off') { spinStage(B); return; }
+    if (!settings.cats.length) { spinStage(B); return; }
     const qs = buildQuestions(enemy, clicked);
     askQ(B, qs, 0);
   }
 
   function askQ(B, qs, i) {
     const Q = qs[i];
-    $('#stage').innerHTML = `<p class="center small">🧠 <b>Question ${i + 1} of 2</b> — ${i === 0 ? 'right answers make your slice of the wheel bigger! (Hint: the answers are on the card you just read.)' : 'one more chance to grow your slice!'}</p>
+    $('#stage').innerHTML = `<p class="center small">🧠 <b>Question ${i + 1} of 2</b> — ${i === 0 ? 'right answers raise your chance of winning! (Hint: the answers are on the card you just read.)' : 'one more chance to raise your odds!'}</p>
       <div class="quiz-q">${esc(Q.q)}</div>
       <div class="quiz-opts">${Q.opts.map((o, k) => `<button data-k="${k}">${Q.kind === 'flag' ? `<img src="${M.flag(o)}" alt="A flag">` : esc(o)}</button>`).join('')}</div>
       <div id="qres"></div>`;
@@ -802,15 +878,15 @@
       if (i === 0) { B.mine = right ? 3 : 1; B.total = 4; } else { B.mine = B.mine * 2 + (right ? 1 : -1); B.total = 8; }
       drawWheel(B, true);
       const fact = Q.explain;
-      $('#qres').innerHTML = `<div class="odds">${right ? `✅ Correct! ${esc(fact)}<br>Your slice grows to <b>${frac(B.mine, B.total)}</b> of the wheel!`
-        : `❌ Not quite. ${esc(fact)}<br>${esc(nameOf(B.enemy))}’s slice grows to <b>${frac(B.total - B.mine, B.total)}</b>.`}</div>
+      $('#qres').innerHTML = `<div class="odds">${right ? `✅ Correct! ${esc(fact)}<br>Your chance grows to ${odds(B.mine, B.total)}!`
+        : `❌ Not quite. ${esc(fact)}<br>${esc(nameOf(B.enemy))}’s chance grows to ${odds(B.total - B.mine, B.total)}.`}</div>
         <div class="btn-row"><button class="btn primary" id="qNext">${i === 0 ? 'Next question →' : 'Get ready to spin! 🎡'}</button></div>`;
       $('#qNext').onclick = () => (i === 0 ? askQ(B, qs, 1) : spinStage(B));
     });
   }
 
   function spinStage(B) {
-    $('#stage').innerHTML = `<p class="center">You have <b>${frac(B.mine, B.total)}</b> of the wheel. ${esc(nameOf(B.enemy))} has <b>${frac(B.total - B.mine, B.total)}</b>.</p>
+    $('#stage').innerHTML = `<p class="center">Your chance to win: ${odds(B.mine, B.total)}. ${esc(nameOf(B.enemy))}’s chance: ${odds(B.total - B.mine, B.total)}.</p>
       <div id="flipOut"><div class="btn-row"><button class="btn gold" id="spinBtn">🎡 SPIN!</button></div></div>`;
     $('#spinBtn').onclick = () => {
       $('#spinBtn').disabled = true;
