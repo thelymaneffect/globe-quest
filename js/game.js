@@ -33,7 +33,7 @@
   };
   const DETAIL_SCRIPTS = ['data/places.js', 'data/cities.js', 'data/rivers.js', 'data/lakes.js', 'data/features.js'];
 
-  let settings = Object.assign({ sound: true, view: '2d', legendOpen: window.innerWidth > 900 }, store.get(SET_KEY) || {});
+  let settings = Object.assign({ sound: true, view: '2d', legendOpen: window.innerWidth > 900, stakes: 'none' }, store.get(SET_KEY) || {});
   if (!Array.isArray(settings.cats)) settings.cats = settings.level === 'off' || settings.boost === false ? [] : ['capitals', 'landmarks', 'geography'];
   const saveSettings = () => store.set(SET_KEY, settings);
 
@@ -351,7 +351,7 @@
         box.appendChild(b);
       }
     }
-    renderLevelPicker($('#levelPick')); $('#setSound').checked = settings.sound;
+    renderLevelPicker($('#levelPick')); renderStakesPicker($('#stakesPick')); $('#setSound').checked = settings.sound;
     $('#supportTitle').innerHTML = supportHTML();
   }
   document.querySelectorAll('.mode-card[data-mode]').forEach((b) => b.addEventListener('click', () => {
@@ -364,6 +364,18 @@
       $('#mNew').onclick = () => { closeModal(); store.del(SAVE_KEY(k)); startMode(k, null); };
     } else startMode(k, null);
   }));
+  /* Game style. Ages are guidelines: most kids can handle a small loss somewhere around 6–8,
+     and kids with ADHD are often 2–3 years behind in self-regulation (Barkley's ~30% rule of thumb). */
+  const STAKES = {
+    none: { label: 'No-loss mode', ages: 'Recommended for ages 4–9', desc: 'Losing a spin never costs anything. Study the card and try again.' },
+    real: { label: 'Real stakes', ages: 'Ages 7–9+', desc: 'Losing a spin costs your newest place (never your home). Study the card and try again.' }
+  };
+  function renderStakesPicker(el) {
+    el.innerHTML = `<div class="lvl-title">🎮 Game style</div>
+      <div class="stakes-row">${Object.entries(STAKES).map(([k, v]) => `<button data-s="${k}" class="stake ${settings.stakes === k ? 'on' : ''}" aria-pressed="${settings.stakes === k}"><b>${settings.stakes === k ? '✓ ' : ''}${v.label}</b><span class="ages">${v.ages}</span><span class="sdesc">${v.desc}</span></button>`).join('')}</div>
+      <div class="lvl-desc">Every child is different. Kids with ADHD often need a few extra years for this, so the higher end of each range fits them. Watch how your child handles a loss, and switch any time.</div>`;
+    el.querySelectorAll('button').forEach((b) => b.onclick = () => { settings.stakes = b.dataset.s; saveSettings(); sfx.click(); renderStakesPicker(el); });
+  }
   function renderLevelPicker(el) {
     const on = settings.cats;
     el.innerHTML = `<div class="lvl-title">🧠 Brain Boost questions — pick any topics</div>
@@ -606,8 +618,8 @@
         <button class="btn primary" id="mnRestart">🔄 Restart this game</button>
       </div>
       <p class="small center" style="margin-top:12px">${offlineReady ? '✈️ This game is saved on your device — it works in airplane mode.' : ''}</p>
-      <div id="mnLevel" class="level-pick" style="margin-top:16px"></div>${supportHTML()}`);
-    renderLevelPicker($('#mnLevel'));
+      <div id="mnLevel" class="level-pick" style="margin-top:16px"></div><div id="mnStakes" class="level-pick"></div>${supportHTML()}`);
+    renderLevelPicker($('#mnLevel')); renderStakesPicker($('#mnStakes'));
     $('#mnHome').onclick = () => { closeModal(); save(); showTitle(); };
     $('#mnHow').onclick = () => { closeModal(); showHow(); };
     if ($('#mnInstall')) $('#mnInstall').onclick = () => { closeModal(); doInstall(); };
@@ -1013,6 +1025,7 @@
     if (win) {
       const taken = regionsOf(enemy);
       for (const r of taken) { S.own[r] = S.player; if (!S.conquered.includes(r)) S.conquered.push(r); }
+      S.recent = (S.recent || []).filter((r) => !taken.includes(r)).concat(taken);
       S.wins++; S.log.push(['win', enemy, taken.length]);
       if (B.attempt) S.comebacks = (S.comebacks || 0) + 1;
       save(); sfx.win(); confetti(80);
@@ -1026,14 +1039,22 @@
         else banner(`${regionsOf(S.player).length} / ${regions.length} ${M.units} are yours!`, 3500);
       };
     } else {
-      // Redemption: losing a spin never costs your land. Study, adapt, and try again.
-      S.log.push(['retry', enemy]); save(); sfx.lose();
+      // Redemption. No-loss mode: nothing is lost. Real stakes: the opponent takes your newest place (never your home).
+      let lostPlace = null;
+      if (settings.stakes === 'real') {
+        const recent = S.recent || [];
+        for (let i = recent.length - 1; i >= 0; i--) { const r = recent[i]; if (S.own[r] === S.player && r !== S.player) { lostPlace = r; break; } }
+        if (lostPlace) { S.own[lostPlace] = enemy; S.recent = recent.filter((r) => r !== lostPlace); }
+      }
+      S.log.push(['retry', enemy, lostPlace]); save(); sfx.lose();
       const next = Math.min(2, B.attempt + 1), nextPct = pct((4 + next) / gcd(4 + next, 8), 8 / gcd(4 + next, 8));
-      out.innerHTML = `<div class="result lose">Not this time!</div>
-        <p class="center">🌱 Every mistake is a chance to learn and grow. Your land is safe. Study ${esc(nameOf(B.clicked))}’s card, then try again — your wheel will start at <b>${nextPct}</b>!</p>
+      const what = lostPlace ? `${esc(nameOf(enemy))} took ${esc(nameOf(lostPlace))} from you.` : 'Your land is safe.';
+      out.innerHTML = `<div class="result lose">Not this time.</div>
+        <p class="center">It’s okay to feel disappointed. ${what}<br>🌱 Let’s learn from it and try again. Study ${esc(nameOf(B.clicked))}’s card — next time your wheel starts at <b>${nextPct}</b>.</p>
         <div class="btn-row"><button class="btn ghost" id="retreat">Choose another place</button><button class="btn go" id="study">📖 Study &amp; try again</button></div>`;
-      $('#retreat').onclick = () => { closeModal(); banner('No problem! Pick any place to challenge. 🌍', 3500); };
-      $('#study').onclick = () => { closeModal(); onRegionClick(B.clicked, null, { study: { enemy, attempt: B.attempt + 1 } }); };
+      const after = () => { if (lostPlace) { refresh(); map.pulse([lostPlace]); } };
+      $('#retreat').onclick = () => { closeModal(); after(); banner('No problem! Pick any place to challenge. 🌍', 3500); };
+      $('#study').onclick = () => { closeModal(); after(); onRegionClick(B.clicked, null, { study: { enemy, attempt: B.attempt + 1 } }); };
     }
   }
 
@@ -1059,8 +1080,14 @@
   }
   function showWin() {
     banner(null); confetti(220); sfx.win();
+    // personal best: fewest battles to conquer everything (kids compete with their past selves)
+    const bestKey = 'lymanWD_best_' + M.key, best = store.get(bestKey);
+    const newRecord = !best || S.battles < best.battles;
+    if (newRecord && !S.recordSaved) { store.set(bestKey, { battles: S.battles, comebacks: S.comebacks || 0 }); S.recordSaved = true; save(); }
+    const recordHTML = newRecord ? `<p class="center record">🥇 New personal best: ${S.battles} battles! Can you beat it next time?</p>`
+      : `<p class="center record">Your best is ${best.battles} battles. This time: ${S.battles}. Can you beat your record next time?</p>`;
     openModal(`<div style="text-align:center;font-size:64px">🏆</div><h3 class="mtitle">You conquered ${M.key === 'us' ? 'the USA' : 'the WORLD'}!</h3>
-      <p class="center">All ${regions.length} ${M.units} belong to ${esc(nameOf(S.player))}. Amazing!</p>${statsHTML()}
+      <p class="center">All ${regions.length} ${M.units} belong to ${esc(nameOf(S.player))}. Amazing!</p>${statsHTML()}${recordHTML}
       <div class="btn-row" style="margin-top:16px"><button class="btn ghost" id="wPass">🛂 Passport</button><button class="btn go" id="wAgain">Play again</button></div>${supportHTML()}`, { wide: true });
     $('#wAgain').onclick = () => { closeModal(); store.del(SAVE_KEY(M.key)); showTitle(); };
     $('#wPass').onclick = () => showPassport();

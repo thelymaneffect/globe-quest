@@ -10,7 +10,10 @@ No accounts, no ads, no tracking. Progress saves automatically in the player's o
 3. Tap **any** place on the map to see its card, then press **Challenge**.
 4. The battle wheel starts at 1/2 for you and 1/2 for them.
 5. **Brain Boost** (optional): pick any topics: **Capitals**, **Famous Landmarks** and **Geography**. Both questions are about the place you are battling, and every answer is on its card. Right answers raise your chance (50% → 75% → 87.5%); wrong answers raise theirs. The fractions are shown too (1/2, 3/4, 7/8) for extra math practice.
-6. Spin! Land on your color and you take their whole empire. Land on theirs and nothing is lost: study the card and try again (redemption). Each comeback attempt starts the wheel bigger (50% → 62.5% → 75%), because failing is a chance to learn and grow.
+6. Spin! Land on your color and you take their whole empire. Land on theirs: it's okay to feel disappointed — let's learn from it and try again. Study the card and retry; each attempt starts the wheel bigger (50% → 62.5% → 75%).
+   - **No-loss mode** (recommended for ages 4–9): a lost spin costs nothing.
+   - **Real stakes** (ages 7–9+): a lost spin costs your newest place, never your home.
+   - Ages are guidelines: most kids handle small losses somewhere around 6–8, and kids with ADHD are often 2–3 years behind in self-regulation, so the higher end of each range fits them.
 7. Own the whole map to win.
 
 Zoom in to see capitals ★, major cities ●, rivers, lakes, mountain ranges and deserts. Switch between the **2D map** and the **3D globe** at any time.
