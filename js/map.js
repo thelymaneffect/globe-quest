@@ -8,6 +8,16 @@
     mountain: '#7a5230', desert: '#a07a2c', hover: '#f2b632'
   };
 
+  // Ocean and sea names. Oceans always show; seas show once you zoom in a little.
+  const WATERS = [
+    ['Pacific Ocean', -150, 5, 1], ['Pacific Ocean', 165, 15, 1], ['Pacific Ocean', -125, 33, 1], ['Atlantic Ocean', -40, 28, 1], ['Atlantic Ocean', -18, -18, 1],
+    ['Atlantic Ocean', -68, 33, 1], ['Indian Ocean', 78, -22, 1], ['Arctic Ocean', 10, 84, 1], ['Arctic Ocean', -150, 76, 1], ['Southern Ocean', 30, -62, 1], ['Southern Ocean', -120, -64, 1],
+    ['Gulf of Mexico', -90.5, 25.5, 0], ['Caribbean Sea', -75, 14.5, 0], ['Mediterranean Sea', 18, 34.5, 0], ['Arabian Sea', 64, 14, 0], ['Bay of Bengal', 89, 14, 0],
+    ['South China Sea', 114, 12, 0], ['Coral Sea', 156, -17, 0], ['Bering Sea', -178, 57, 0], ['Hudson Bay', -85, 60, 0], ['Red Sea', 38.5, 20.5, 0],
+    ['Black Sea', 34, 43.3, 0], ['Caspian Sea', 50.5, 41.5, 0], ['North Sea', 3.5, 56, 0], ['Baltic Sea', 19.5, 57.5, 0], ['Sea of Japan', 135, 40, 0],
+    ['Tasman Sea', 160, -38, 0], ['Gulf of Alaska', -145, 56.5, 0], ['Labrador Sea', -55, 59, 0], ['Philippine Sea', 133, 20, 0], ['Gulf of Guinea', 3, 1.5, 0]
+  ];
+
   function largestPolygon(f) {
     const g = f.geometry; if (!g) return null;
     if (g.type !== 'MultiPolygon') return f;
@@ -204,6 +214,27 @@
 
     invalidateBorders() { this.empireMesh = null; }
 
+    // fly to a spot on Earth at "region" zoom (used by the blue location arrow); returns false if it's off this map
+    flyToPoint(ll) {
+      if (this.view === '2d') {
+        const p = this.p2(ll); if (!p) return false;
+        const k = this.mode === 'us' ? 2.6 : 6;
+        this.sel.transition().duration(1000).call(this.zoom.transform, d3.zoomIdentity.translate(this.w / 2, this.h / 2).scale(k).translate(-p[0], -p[1]));
+      } else this._tweenRot([-ll[0], -ll[1]], this.mode === 'us' ? 6 : 5);
+      return true;
+    }
+    regionAt(ll) {
+      for (const f of this.features) if (f.o && f.geometry.type !== 'Point' && d3.geoContains(f, ll)) return f.o;
+      return null;
+    }
+
+    // the rest of the world, drawn in gray behind the playable places (used in USA Mode)
+    setBackdrop(fc) {
+      this.backdrop = fc ? fc.features : null;
+      if (this.backdrop) for (const f of this.backdrop) { f.area = d3.geoArea(f); f.lp = largestPolygonCentroid(f); }
+      this._backdropLabels = this.backdrop ? this.backdrop.filter((f) => f.area > 2e-3).sort((a, b) => b.area - a.area) : null;
+    }
+
     flyTo(code) {
       const fs = this.byRegion.get(code); if (!fs) return;
       const main = fs.find(f => f.id === code) || fs[0];
@@ -249,7 +280,7 @@
 
     draw() {
       if (this._raf) return;
-      this._raf = requestAnimationFrame(() => { this._raf = null; this._render(); this.onRender && this.onRender(); });
+      this._raf = requestAnimationFrame(() => { this._raf = null; this._render(); this._drawHere(this.ctx); this.onRender && this.onRender(); });
     }
 
     _render() {
@@ -283,6 +314,11 @@
       }
       const eff = this.effZoom();
       const scale = this._pxScale();
+      // rest-of-world backdrop (USA Mode): soft gray land with thin borders, not clickable
+      if (this.backdrop) {
+        ctx.beginPath(); for (const f of this.backdrop) path(f); ctx.fillStyle = '#e6e1d6'; ctx.fill();
+        ctx.strokeStyle = 'rgba(120,120,120,.55)'; ctx.lineWidth = lw * 0.6; ctx.stroke();
+      }
       // land fills — every shape of the same color is filled in one go, so no seams show inside an empire
       const byColor = new Map();
       for (const f of this.features) {
@@ -370,6 +406,27 @@
           ctx.strokeText(name, s[0] + 9, s[1]); ctx.fillStyle = '#1d2a3a'; ctx.fillText(name, s[0] + 9, s[1]);
         }
       };
+      // 0) oceans and seas
+      for (const [name, lon, lat, major] of WATERS) {
+        if (!major && eff < (this.mode === 'us' ? 3 : 1.8)) continue;
+        const s = this._toScreen([lon, lat]); if (!s || s[0] < 0 || s[1] < 0 || s[0] > this.w || s[1] > this.h) continue;
+        const fsz = major ? Math.min(17, 12 + eff) : 12;
+        ctx.font = `italic 700 ${fsz}px Nunito, sans-serif`;
+        if ('letterSpacing' in ctx) ctx.letterSpacing = major ? '2px' : '1px';
+        const label = major ? name.toUpperCase() : name; const tw = ctx.measureText(label).width;
+        if (tryLabel(s[0], s[1], tw, fsz)) text(label, s[0], s[1], `italic 700 ${fsz}px Nunito, sans-serif`, '#3b7fb3', 2.5);
+        if ('letterSpacing' in ctx) ctx.letterSpacing = '0px';
+      }
+      // backdrop country names (gray, e.g. Canada and Mexico in USA Mode)
+      if (this._backdropLabels) {
+        for (const f of this._backdropLabels) {
+          const sizePx = Math.sqrt(f.area) * scale; const name = f.properties.n;
+          const fsz = Math.max(11, Math.min(16, sizePx / 9)); ctx.font = `italic 700 ${fsz}px Nunito, sans-serif`;
+          const tw = ctx.measureText(name).width; if (sizePx < tw * 0.9) continue;
+          const s = this._toScreen(f.lp); if (!s || s[0] < 0 || s[1] < 0 || s[0] > this.w || s[1] > this.h) continue;
+          if (tryLabel(s[0], s[1], tw, fsz)) text(name, s[0], s[1], `italic 700 ${fsz}px Nunito, sans-serif`, '#8a8478', 3);
+        }
+      }
       // 1) country/state names  2) capitals  3) cities  4) mountains & deserts  5) river names
       // region names
       const seen = new Set();
@@ -433,6 +490,16 @@
     }
 
     _isTiny(f, scale) { return f.o && f.id === f.o && f.area * scale * scale < 5; }
+
+    _drawHere(ctx) {
+      if (!this.here) return;
+      const s = this._toScreen(this.here); if (!s) return;
+      const ph = (performance.now() % 2000) / 2000;
+      ctx.beginPath(); ctx.arc(s[0], s[1], 10 + ph * 16, 0, 7); ctx.fillStyle = `rgba(10,132,255,${0.35 * (1 - ph)})`; ctx.fill();
+      ctx.beginPath(); ctx.arc(s[0], s[1], 9, 0, 7); ctx.fillStyle = '#fff'; ctx.fill();
+      ctx.beginPath(); ctx.arc(s[0], s[1], 6.5, 0, 7); ctx.fillStyle = '#0a84ff'; ctx.fill();
+      if (!this._hereAnim) { this._hereAnim = true; const loop = () => { if (!this.here) { this._hereAnim = false; return; } this.draw(); setTimeout(() => requestAnimationFrame(loop), 60); }; requestAnimationFrame(loop); }
+    }
 
     _star(ctx, x, y, r, color) {
       ctx.beginPath();

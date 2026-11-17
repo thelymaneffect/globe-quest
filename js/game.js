@@ -26,7 +26,7 @@
     },
     us: {
       key: 'us', title: 'USA Mode', unit: 'state', units: 'states',
-      scripts: ['data/us.js', 'data/info-us.js', 'data/extras.js', 'data/nature.js'],
+      scripts: ['data/us.js', 'data/info-us.js', 'data/extras.js', 'data/nature.js', 'data/world.js', 'data/world-meta.js'],
       geo: () => window.GEO_US, obj: 'states', info: () => window.INFO_US,
       flag: (c) => `flags/us/${window.INFO_US[c][0].toLowerCase().replace(/ /g, '-')}.svg`
     }
@@ -56,17 +56,33 @@
   const loadAll = (list) => Promise.all(list.map(loadScript));
 
   /* ---------------- sound (no files needed) ---------------- */
-  let actx = null;
+  // Phones and tablets pause the sound player while Read Aloud talks or the app is in the background.
+  // Sounds asked for during a pause are DROPPED (never saved up to blast out on the next tap),
+  // and any still-playing sounds are cleared when a battle opens or a popup closes.
+  let actx = null; const liveTones = new Set();
+  function audio() {
+    try { actx = actx || new (window.AudioContext || window.webkitAudioContext)(); } catch (e) { return null; }
+    if (actx.state !== 'running') actx.resume().catch(() => {});
+    return actx;
+  }
+  function stopAllSounds() {
+    for (const o of liveTones) { try { o.stop(); } catch (e) { /* already stopped */ } }
+    liveTones.clear();
+  }
   function tone(freq, dur, type = 'sine', vol = 0.15, when = 0) {
     if (!settings.sound) return;
+    const ac = audio(); if (!ac || ac.state !== 'running') return; // paused: skip this sound instead of queueing it
     try {
-      actx = actx || new (window.AudioContext || window.webkitAudioContext)();
-      const t0 = actx.currentTime + when, o = actx.createOscillator(), g = actx.createGain();
+      const t0 = ac.currentTime + when, o = ac.createOscillator(), g = ac.createGain();
       o.type = type; o.frequency.setValueAtTime(freq, t0);
       g.gain.setValueAtTime(vol, t0); g.gain.exponentialRampToValueAtTime(0.001, t0 + dur);
-      o.connect(g).connect(actx.destination); o.start(t0); o.stop(t0 + dur + 0.05);
+      o.connect(g).connect(ac.destination); o.start(t0); o.stop(t0 + dur + 0.05);
+      liveTones.add(o); o.onended = () => liveTones.delete(o);
     } catch (e) { /* audio unavailable */ }
   }
+  // wake the sound player on the first tap so the very first sounds aren't skipped
+  ['pointerdown', 'keydown'].forEach((ev) => window.addEventListener(ev, () => { if (settings.sound) audio(); }, { capture: true }));
+  document.addEventListener('visibilitychange', () => { if (document.hidden) stopAllSounds(); });
   const sfx = {
     click: () => tone(660, 0.08, 'triangle', 0.08),
     spin: () => { let t = 0; for (let i = 0; i < 34; i++) { tone(1100, 0.03, 'square', 0.04, t); t += 0.035 + i * i * 0.00028; } },
@@ -126,7 +142,7 @@
     modal.hidden = false; modalOnClose = opts.onClose || null; card.scrollTop = 0;
     card.querySelectorAll('[data-close]').forEach((b) => b.addEventListener('click', closeModal));
   }
-  function closeModal() { modal.hidden = true; card.innerHTML = ''; stopSpeech(); const f = modalOnClose; modalOnClose = null; f && f(); }
+  function closeModal() { modal.hidden = true; card.innerHTML = ''; stopSpeech(); stopAllSounds(); const f = modalOnClose; modalOnClose = null; f && f(); }
   modal.addEventListener('click', (e) => { if (e.target === modal && !card.querySelector('[data-lock]')) closeModal(); });
   document.addEventListener('keydown', (e) => { if (e.key === 'Escape' && !modal.hidden && !card.querySelector('[data-lock]')) closeModal(); });
 
@@ -380,6 +396,13 @@
     map.onRender = updateCompass;
     map.view = settings.view;
     map.setMode(key, feats, topo, M.obj);
+    if (key === 'us' && window.GEO_WORLD) { // show the rest of the world around the USA (gray, not playable)
+      const w = topojson.feature(window.GEO_WORLD, window.GEO_WORLD.objects.countries);
+      const NAMES = { CA: 'Canada', MX: 'Mexico', RU: 'Russia', CU: 'Cuba', GL: 'Greenland', BS: 'The Bahamas' };
+      w.features = w.features.filter((f) => f.properties.o !== 'US' && f.id !== 'PR' && !['GU', 'MP', 'VI', 'AS'].includes(f.id));
+      w.features.forEach((f) => { const meta = window.WORLD_META && window.WORLD_META[f.id]; f.properties.n = NAMES[f.id] || (meta && meta.name) || f.properties.n; });
+      map.setBackdrop(w);
+    } else map.setBackdrop(null);
     map.setView(settings.view);
     setViewButtons();
     assignAIColors(topo);
@@ -493,6 +516,22 @@
   $('#zIn').onclick = () => map.zoomBy(1.8);
   $('#zOut').onclick = () => map.zoomBy(1 / 1.8);
   $('#zReset').onclick = () => map.resetView(true);
+  // 📍 Blue location arrow: flies to the general area where this device is.
+  // The location is rounded (about 10 km), used only on this device, and never saved or sent anywhere.
+  $('#zHere').onclick = () => {
+    sfx.click();
+    const goEmpire = (why) => { banner(why, 4500); if (S && S.player) map.flyTo(S.player); };
+    if (!('geolocation' in navigator)) { goEmpire('This device can’t share its location. Here’s your empire instead!'); return; }
+    banner('📍 Finding where you are…');
+    navigator.geolocation.getCurrentPosition((pos) => {
+      const ll = [Math.round(pos.coords.longitude * 10) / 10, Math.round(pos.coords.latitude * 10) / 10];
+      map.here = ll; map.draw();
+      if (!map.flyToPoint(ll)) { banner('📍 You’re outside this map! Showing the whole map.', 4500); map.resetView(true); return; }
+      const r = map.regionAt(ll);
+      banner(r ? `📍 You are here: ${nameOf(r)}!` : '📍 Here you are!', 4500);
+    }, () => goEmpire('Couldn’t find your location (location may be off, or need Wi-Fi). Here’s your empire instead!'),
+    { enableHighAccuracy: false, timeout: 10000, maximumAge: 30 * 60 * 1000 });
+  };
   function updateSoundBtn() { $('#btnSound').textContent = settings.sound ? '🔊' : '🔇'; }
   $('#btnSound').onclick = () => { settings.sound = !settings.sound; saveSettings(); updateSoundBtn(); sfx.click(); };
   updateSoundBtn();
@@ -854,6 +893,7 @@
   }
 
   function startBattle(enemy, clicked) {
+    stopAllSounds(); stopSpeech(); // no leftover sounds when a new battle opens
     const B = { enemy, mine: 1, total: 2 };
     openModal(`<h3 class="mtitle">⚔️ Battle!</h3>${versusHTML(enemy)}<div id="wheelBox"></div><div id="stage"></div>`, { noClose: true });
     card.insertAdjacentHTML('afterbegin', '<span data-lock></span>');

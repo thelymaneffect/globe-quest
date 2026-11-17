@@ -225,3 +225,4 @@ p.center{text-align:center}
 .chip.stop{background:var(--red);border-color:var(--red);color:#fff}
 .voice-help{padding-left:20px;line-height:1.5}
 .voice-help li{margin:8px 0}
+.here-btn svg{width:24px;height:24px;display:block;margin:auto}
