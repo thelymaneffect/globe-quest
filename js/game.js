@@ -374,7 +374,7 @@
   function renderStakesPicker(el) {
     el.innerHTML = `<div class="lvl-title">🎮 Game style</div>
       <div class="stakes-row">${Object.entries(STAKES).map(([k, v]) => `<button data-s="${k}" class="stake ${settings.stakes === k ? 'on' : ''}" aria-pressed="${settings.stakes === k}"><b>${settings.stakes === k ? '✓ ' : ''}${v.label}</b><span class="ages">${v.ages}</span><span class="sdesc">${v.desc}</span></button>`).join('')}</div>
-      <div class="lvl-desc">Every child is different. Kids with ADHD often need a few extra years for this, so the higher end of each range fits them. Watch how your child handles a loss, and switch any time.</div>`;
+      <div class="lvl-desc">Handling losing is a developmental skill that takes time and practice. Every child is different. Watch how your child handles a loss, and switch when appropriate.</div>`;
     el.querySelectorAll('button').forEach((b) => b.onclick = () => { settings.stakes = b.dataset.s; saveSettings(); sfx.click(); renderStakesPicker(el); });
   }
   function renderLevelPicker(el) {
