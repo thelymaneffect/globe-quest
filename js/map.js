@@ -433,18 +433,20 @@
       const sorted = this._sortedForLabels || (this._sortedForLabels = this.features.filter(f => f.o).slice().sort((a, b) => b.area - a.area));
       for (const f of sorted) {
         if (seen.has(f.o) || f.id !== f.o) continue;
-        const sizePx = Math.sqrt(f.area) * scale;
-        const name = this.labelName ? this.labelName(f.o) : f.nm;
-        const fsz = Math.max(11, Math.min(18, sizePx / 9));
+        // labelPlan decides: hide a conquered place's name when it joined its conqueror's land,
+        // or show the conqueror's name on a far-away conquered place
+        const plan = this.labelPlan ? this.labelPlan(f.o) : null;
+        if (plan && plan.hide) continue;
+        const sizePx = Math.sqrt(plan && plan.area ? plan.area : f.area) * scale;
+        const name = plan && plan.text ? plan.text : (this.labelName ? this.labelName(f.o) : f.nm);
+        const fsz = Math.max(11, Math.min(plan && plan.area ? 22 : 18, sizePx / 9));
         ctx.font = `800 ${fsz}px Nunito, sans-serif`;
         const tw = ctx.measureText(name).width;
         if (sizePx < tw * 0.9) continue;
-        const s = this._toScreen(f.lp); if (!s) continue;
-        const owner = this.labelOwner ? this.labelOwner(f.o) : null;
-        if (!tryLabel(s[0], s[1] + (owner ? fsz * 0.45 : 0), tw, owner ? fsz * 1.9 : fsz)) continue;
+        const s = this._toScreen(plan && plan.at ? plan.at : f.lp); if (!s) continue;
+        if (!tryLabel(s[0], s[1], tw, fsz)) continue;
         seen.add(f.o);
         text(name, s[0], s[1], `800 ${fsz}px Nunito, sans-serif`, COL.label, 3.5);
-        if (owner) { const f2 = Math.max(10, fsz * 0.72); text(`(${owner})`, s[0], s[1] + fsz * 0.95, `italic 700 ${f2}px Nunito, sans-serif`, '#3a4a5e', 3); }
       }
 
       drawPlaces(true);

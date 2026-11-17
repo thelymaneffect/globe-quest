@@ -392,7 +392,8 @@
     map.colorOf = colorOf;
     map.empireOf = (r) => (S ? S.own[r] : r);
     map.labelName = (r) => (M.key === 'us' ? nameOf(r) : (info(r) ? info(r)[0].replace(/ \(.*\)$/, '') : r));
-    map.labelOwner = (r) => (S && S.own && S.own[r] && S.own[r] !== r ? (S.own[r] === S.player ? 'You' : nameOf(S.own[r]).replace(/ \(.*\)$/, '')) : null);
+    map.labelPlan = (r) => labelPlan[r] || null;
+    buildNeighbors(topo);
     map.onRender = updateCompass;
     map.view = settings.view;
     map.setMode(key, feats, topo, M.obj);
@@ -450,7 +451,41 @@
   function save() { if (S && M) store.set(SAVE_KEY(M.key), S); }
 
   /* ================= HUD / LEGEND ================= */
+  /* ---------- map labels after conquests ----------
+     A conquered place that touches its conqueror's land (directly or through other conquered places)
+     merges in: its border is erased and its own name is hidden, so the empire shows ONE name.
+     A conquered place that doesn't touch (across water or far away) keeps its border and is
+     relabeled with the conqueror's name. */
+  let regionNb = new Map(), labelPlan = {};
+  function buildNeighbors(topo) {
+    const geoms = topo.objects[M.obj].geometries, nb = topojson.neighbors(geoms);
+    regionNb = new Map(regions.map((r) => [r, new Set()]));
+    geoms.forEach((g, i) => { const a = g.properties.o; if (!a || !regionNb.has(a)) return;
+      for (const j of nb[i]) { const b = geoms[j].properties.o; if (b && b !== a && regionNb.has(b)) regionNb.get(a).add(b); } });
+  }
+  const shortName = (c) => nameOf(c).replace(/ \(.*\)$/, '');
+  const mainArea = (c) => { const fs = map.byRegion.get(c) || []; const f = fs.find((x) => x.id === c) || fs[0]; return f ? f.area : 0; };
+  function computeLabelPlan() {
+    labelPlan = {};
+    const byEmpire = new Map();
+    for (const r of regions) { const e = S.own[r]; if (!byEmpire.has(e)) byEmpire.set(e, []); byEmpire.get(e).push(r); }
+    for (const [e, members] of byEmpire) {
+      if (members.length === 1 && members[0] === e) continue; // a free place: normal label
+      const left = new Set(members);
+      while (left.size) { // split the empire into connected groups of touching places
+        const start = left.has(e) ? e : left.values().next().value;
+        const group = [start]; left.delete(start);
+        for (let i = 0; i < group.length; i++) for (const n of regionNb.get(group[i]) || []) if (left.has(n)) { left.delete(n); group.push(n); }
+        if (group.length === 1 && group[0] === e) continue; // the home place on its own: normal label
+        const anchor = group.includes(e) ? e : group.reduce((a, b) => (mainArea(b) > mainArea(a) ? b : a));
+        const area = group.reduce((sum, c) => sum + mainArea(c), 0);
+        for (const c of group) labelPlan[c] = c === anchor ? { text: shortName(e), area } : { hide: true };
+      }
+    }
+  }
+
   function refresh() {
+    computeLabelPlan();
     map.highlight = new Set(S.player ? regionsOf(S.player) : []);
     map.invalidateBorders(); map.draw();
     const hs = $('#hudStatus');
