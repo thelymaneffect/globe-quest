@@ -22,6 +22,35 @@
   const CALLOUTS = { NH: [-68.6, 43.0], VT: [-67.6, 44.0], MA: [-68.7, 41.9], RI: [-69.6, 40.9], CT: [-70.9, 40.3],
     NJ: [-72.2, 39.5], DE: [-72.9, 38.6], MD: [-73.3, 37.7] };
 
+  // A lighter copy of a shape (fewer points) used only while the globe is spinning, so it moves instantly.
+  function liteFeature(f, step = 1.5) {
+    const g = f.geometry; if (!g || g.type === 'Point') return f;
+    const thin = (ring) => {
+      const out = [ring[0]]; let [lx, ly] = ring[0];
+      for (let i = 1; i < ring.length - 1; i++) { const [x, y] = ring[i]; if (Math.abs(x - lx) + Math.abs(y - ly) > step) { out.push(ring[i]); lx = x; ly = y; } }
+      out.push(ring[ring.length - 1]);
+      return out.length >= 4 ? out : null;
+    };
+    const poly = (rings) => { const r = rings.map(thin).filter(Boolean); return r.length ? r : null; };
+    let lite;
+    if (g.type === 'Polygon') { const p = poly(g.coordinates); lite = p ? { type: 'Feature', geometry: { type: 'Polygon', coordinates: p } } : f; }
+    else { const ps = g.coordinates.map(poly).filter(Boolean); lite = ps.length ? { type: 'Feature', geometry: { type: 'MultiPolygon', coordinates: ps } } : f; }
+    // safety check: if simplifying turned the shape inside-out (it would cover the whole globe), keep the original
+    const a0 = d3.geoArea(f), a1 = d3.geoArea(lite);
+    return a1 > 2 * Math.PI || Math.abs(a1 - a0) > Math.max(a0 * 0.5, 1e-5) ? f : lite;
+  }
+
+  // same idea for border lines
+  function liteLines(mesh, step) {
+    if (!mesh) return mesh;
+    const lines = (mesh.type === 'MultiLineString' ? mesh.coordinates : [mesh.coordinates]).map((line) => {
+      const out = [line[0]]; let [lx, ly] = line[0];
+      for (let i = 1; i < line.length - 1; i++) { const [x, y] = line[i]; if (Math.abs(x - lx) + Math.abs(y - ly) > step) { out.push(line[i]); lx = x; ly = y; } }
+      out.push(line[line.length - 1]); return out;
+    });
+    return { type: 'MultiLineString', coordinates: lines };
+  }
+
   function largestPolygon(f) {
     const g = f.geometry; if (!g) return null;
     if (g.type !== 'MultiPolygon') return f;
@@ -46,7 +75,9 @@
       this.flash = new Map(); this.hover = null; this.onClick = null; this.onHover = null; this.onZoom = null;
       this.detail = null; // places/rivers etc, loaded lazily
       this.zoom = d3.zoom().scaleExtent([1, 60]).clickDistance(6)
-        .on('zoom', (e) => this._zoomed(e));
+        .on('start', (e) => { if (e.sourceEvent) this._moving = true; })
+        .on('zoom', (e) => this._zoomed(e))
+        .on('end', () => { if (this._moving) { this._moving = false; this.draw(); } });
       this.sel = d3.select(canvas).call(this.zoom).on('dblclick.zoom', null);
       canvas.addEventListener('click', (e) => this._click(e));
       canvas.addEventListener('mousemove', (e) => this._move(e));
@@ -63,6 +94,7 @@
         f.area = f.geometry.type === 'Point' ? 0 : d3.geoArea(f);
         f.bounds = d3.geoBounds(f);
         f.lp = largestPolygonCentroid(f); f.mainPoly = largestPolygon(f);
+        f.lite = liteFeature(f); f.mid = liteFeature(f, 0.45); // simpler copies for the globe
         if (f.o) { if (!this.byRegion.has(f.o)) this.byRegion.set(f.o, []); this.byRegion.get(f.o).push(f); }
       }
       this.sphere = { type: 'Sphere' };
@@ -105,6 +137,7 @@
         this.center3 = [-10, -20];
       }
       this.base3 = Math.min(this.w, this.h) / 2 - 18;
+      this._pc = new WeakMap(); this._svg = d3.geoPath(this.p2); // saved flat-map shapes (reset when the map is resized)
       this.p3 = d3.geoOrthographic().clipAngle(90).precision(0.4).translate([this.w / 2, this.h / 2]);
     }
 
@@ -161,7 +194,7 @@
 
     _proj() {
       if (this.view === '2d') return this.p2;
-      return this.p3.scale(this.base3 * this.k3).rotate([this.rot[0], this.rot[1]]);
+      return this.p3.scale(this.base3 * this.k3).rotate([this.rot[0], this.rot[1]]).precision(this._moving ? 2 : 0.4);
     }
 
     // screen px -> [lon,lat]
@@ -272,11 +305,12 @@
       let dl = ((target[0] - r0[0] + 540) % 360) - 180; const t1 = [r0[0] + dl, target[1]];
       const ir = d3.interpolate(r0, t1), ik = d3.interpolate(k0, k);
       if (this._timer) this._timer.stop();
+      this._moving = true;
       this._timer = d3.timer((ms) => {
         const tt = Math.min(1, ms / 900), e = d3.easeCubicInOut(tt);
         this.rot = ir(e); this.k3 = ik(e); this.draw();
         if (tt >= 1) {
-          this._timer.stop();
+          this._timer.stop(); this._moving = false; this.draw();
           this._suppress = true; this.sel.call(this.zoom.transform, d3.zoomIdentity.scale(this.k3)); this._suppress = false;
           this._last = { x: 0, y: 0 };
           this.onZoom && this.onZoom(this.effZoom());
@@ -294,6 +328,12 @@
     draw() {
       if (this._raf) return;
       this._raf = requestAnimationFrame(() => { this._raf = null; this._render(); this._drawHere(this.ctx); this.onRender && this.onRender(); });
+    }
+
+    _p2d(obj) {
+      let p = this._pc.get(obj);
+      if (!p) { p = new Path2D(this._svg(obj) || ''); this._pc.set(obj, p); }
+      return p;
     }
 
     _render() {
@@ -315,22 +355,30 @@
       }
       const path = d3.geoPath(proj, ctx);
       const lw = 1 / k;
+      const light = !is2d && this._moving; // spinning globe: simple outlines, details come back when it stops
+      const zoomedOutGlobe = !is2d && this.k3 < 2.5; // fine detail is too small to see when zoomed out
+      // draw a set of shapes: flat map re-uses saved shapes; the globe projects them fresh
+      const shapes = (objs, op) => {
+        if (is2d) { const P = new Path2D(); for (const o of objs) P.addPath(this._p2d(o)); ctx[op](P); }
+        else { ctx.beginPath(); for (const o of objs) path(light && o.lite ? o.lite : (zoomedOutGlobe && o.mid ? o.mid : o)); ctx[op](); }
+      };
       // ocean sphere
       if (this.mode !== 'us' || !is2d) {
-        ctx.beginPath(); path(this.sphere);
+        if (is2d) { ctx.beginPath(); ctx.fillStyle = COL.ocean; ctx.fill(this._p2d(this.sphere)); }
+        else ctx.beginPath(), path(this.sphere);
         if (!is2d) {
           const g = ctx.createRadialGradient(this.w / 2 - proj.scale() * .3, this.h / 2 - proj.scale() * .3, proj.scale() * .1, this.w / 2, this.h / 2, proj.scale());
           g.addColorStop(0, '#d4ecf8'); g.addColorStop(1, '#8cc4e3'); ctx.fillStyle = g;
-        } else ctx.fillStyle = COL.ocean;
-        ctx.fill();
-        ctx.beginPath(); path(this.graticule); ctx.strokeStyle = COL.grat; ctx.lineWidth = lw * 0.8; ctx.stroke();
+          ctx.fill();
+        }
+        ctx.strokeStyle = COL.grat; ctx.lineWidth = lw * 0.8; shapes([this.graticule], 'stroke');
       }
       const eff = this.effZoom();
       const scale = this._pxScale();
       // rest-of-world backdrop (USA Mode): soft gray land with thin borders, not clickable
       if (this.backdrop) {
-        ctx.beginPath(); for (const f of this.backdrop) path(f); ctx.fillStyle = '#e6e1d6'; ctx.fill();
-        ctx.strokeStyle = 'rgba(120,120,120,.55)'; ctx.lineWidth = lw * 0.6; ctx.stroke();
+        ctx.fillStyle = '#e6e1d6'; shapes(this.backdrop, 'fill');
+        if (!light) { ctx.strokeStyle = 'rgba(120,120,120,.55)'; ctx.lineWidth = lw * 0.6; shapes(this.backdrop, 'stroke'); }
       }
       // land fills — every shape of the same color is filled in one go, so no seams show inside an empire
       const byColor = new Map();
@@ -341,11 +389,11 @@
         if (fl) { const ph = ((performance.now() - fl) / 200) | 0; if (ph % 2 === 0) c = '#ffffff'; }
         if (!byColor.has(c)) byColor.set(c, []); byColor.get(c).push(f);
       }
-      for (const [c, fs] of byColor) { ctx.beginPath(); for (const f of fs) path(f); ctx.fillStyle = c; ctx.fill(); }
+      for (const [c, fs] of byColor) { ctx.fillStyle = c; shapes(fs, 'fill'); }
       // lakes
-      if (this.detail) {
-        ctx.beginPath(); for (const l of this.detail.lakes.features) path(l); ctx.fillStyle = COL.lake; ctx.fill();
-        ctx.strokeStyle = 'rgba(79,151,207,.6)'; ctx.lineWidth = lw * 0.6; ctx.stroke();
+      if (this.detail && !light) {
+        ctx.fillStyle = COL.lake; shapes(this.detail.lakes.features, 'fill');
+        ctx.strokeStyle = 'rgba(79,151,207,.6)'; ctx.lineWidth = lw * 0.6; shapes(this.detail.lakes.features, 'stroke');
       }
       // Borders are only drawn between DIFFERENT empires. Once neighbors belong to the same empire,
       // the old border between them is erased. Recomputed whenever ownership changes.
@@ -356,25 +404,27 @@
         this.empireMesh = topojson.mesh(this.topo, obj, (a, b) => a !== b && emp(a) !== emp(b));
         this.coastMesh = topojson.mesh(this.topo, obj, (a, b) => a === b);
         this.playerMesh = this.highlight.size ? topojson.mesh(this.topo, obj, (a, b) => (a === b ? mine(a) : mine(a) !== mine(b))) : null;
+        this.empireMesh.mid = liteLines(this.empireMesh, 0.45); this.coastMesh.mid = liteLines(this.coastMesh, 0.45);
+        if (this.playerMesh) this.playerMesh.mid = liteLines(this.playerMesh, 0.45);
       }
-      ctx.beginPath(); path(this.empireMesh); ctx.strokeStyle = 'rgba(29,42,58,.6)'; ctx.lineWidth = lw * 1; ctx.stroke();
-      ctx.beginPath(); path(this.coastMesh); ctx.strokeStyle = 'rgba(29,42,58,.45)'; ctx.lineWidth = lw * 0.8; ctx.stroke();
+      if (!light) {
+        ctx.strokeStyle = 'rgba(29,42,58,.6)'; ctx.lineWidth = lw * 1; shapes([this.empireMesh], 'stroke');
+        ctx.strokeStyle = 'rgba(29,42,58,.45)'; ctx.lineWidth = lw * 0.8; shapes([this.coastMesh], 'stroke');
+      }
       // outline the player's whole empire (outer edge only)
-      if (this.playerMesh) {
-        ctx.beginPath(); path(this.playerMesh); ctx.strokeStyle = 'rgba(255,255,255,.95)'; ctx.lineWidth = lw * 2.4; ctx.stroke();
-        ctx.beginPath(); path(this.playerMesh); ctx.strokeStyle = 'rgba(29,42,58,.8)'; ctx.lineWidth = lw * 0.9; ctx.stroke();
+      if (this.playerMesh && !light) {
+        ctx.strokeStyle = 'rgba(255,255,255,.95)'; ctx.lineWidth = lw * 2.4; shapes([this.playerMesh], 'stroke');
+        ctx.strokeStyle = 'rgba(29,42,58,.8)'; ctx.lineWidth = lw * 0.9; shapes([this.playerMesh], 'stroke');
       }
       // hover
-      if (this.hover && this.hover.o) {
-        ctx.beginPath(); for (const f of this.byRegion.get(this.hover.o) || []) path(f);
-        ctx.strokeStyle = COL.hover; ctx.lineWidth = lw * 3; ctx.stroke();
+      if (this.hover && this.hover.o && !light) {
+        ctx.strokeStyle = COL.hover; ctx.lineWidth = lw * 3; shapes(this.byRegion.get(this.hover.o) || [], 'stroke');
       }
       // rivers
-      if (this.detail && eff >= 1.4) {
+      if (this.detail && eff >= 1.4 && !light) {
         const maxRank = Math.min(10, 1.5 + eff * 1.3);
-        ctx.beginPath();
-        for (const r of this.detail.rivers.features) if (r.properties.r <= maxRank) path(r);
-        ctx.strokeStyle = COL.river; ctx.lineWidth = lw * (eff > 5 ? 1.4 : 1); ctx.stroke();
+        ctx.strokeStyle = COL.river; ctx.lineWidth = lw * (eff > 5 ? 1.4 : 1);
+        shapes(this.detail.rivers.features.filter((r) => r.properties.r <= maxRank), 'stroke');
       }
       // --- screen-space overlays ---
       ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
@@ -399,7 +449,7 @@
         ctx.fillStyle = color; ctx.fillText(str, x, y);
       };
       const drawPlaces = (wantStars) => {
-        if (!this.detail) return;
+        if (!this.detail || light) return;
         const showCap = this.mode === 'us' ? eff >= 5.5 : eff >= 2.2;
         const showCity = this.mode === 'us' ? eff >= 5.5 : eff >= 2.6;
         if (wantStars ? !showCap : !showCity) return;
@@ -472,7 +522,7 @@
         text(name, s[0], s[1], `800 ${fsz}px Nunito, sans-serif`, COL.label, 3.5);
       }
       // lake names — biggest lakes first, and only lakes big enough on screen for their name
-      if (this.detail) {
+      if (this.detail && !light) {
         const lakes = this._lakesBySize || (this._lakesBySize = this.detail.lakes.features.filter((l) => l.properties.n)
           .map((l) => { l._a = d3.geoArea(l); l._c = d3.geoCentroid(largestPolygon(l)); return l; }).sort((a, b) => b._a - a._a));
         for (const l of lakes) {
@@ -512,7 +562,7 @@
       // 1) country/state names  2) capitals  3) cities  4) mountains & deserts  5) river names
       drawPlaces(true);
       drawPlaces(false);
-      if (this.detail) {
+      if (this.detail && !light) {
         // mountains, deserts, plateaus
         if (eff >= 1.6) {
           for (const [name, lon, lat, t, rank] of this.detail.features) {
