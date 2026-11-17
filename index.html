@@ -1,0 +1,114 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
+<title>Lyman Learning: World Domination</title>
+<meta name="description" content="A free geography game: pick a country, flip the coin, conquer the world — and learn capitals, languages, flags and fun facts along the way.">
+<link rel="icon" type="image/png" sizes="32x32" href="icons/favicon-32.png">
+<link rel="manifest" href="manifest.webmanifest">
+<link rel="apple-touch-icon" href="icons/apple-touch-icon.png">
+<meta name="theme-color" content="#1d2a3a">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-title" content="World Domination">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<link rel="stylesheet" href="css/fonts.css">
+<link rel="stylesheet" href="css/style.css">
+</head>
+<body>
+
+<!-- ===== TITLE SCREEN ===== -->
+<section id="title" class="screen">
+  <div class="title-inner">
+    <div class="brand">Lyman Learning</div>
+    <h1>World Domination<span>Geography Game</span></h1>
+    <p class="tagline">Pick a country. Spin the wheel. Conquer the map — and learn about every place you visit.</p>
+
+    <div id="continueBox" class="continue-box"></div>
+
+    <h2 class="pick-label">Start a new game</h2>
+    <div class="modes">
+      <button class="mode-card" data-mode="world">
+        <span class="mode-emoji">🌍</span>
+        <span class="mode-name">World Mode</span>
+        <span class="mode-desc">All 199 countries. Conquer the whole planet!</span>
+      </button>
+      <button class="mode-card" data-mode="us">
+        <span class="mode-emoji">🇺🇸</span>
+        <span class="mode-name">USA Mode</span>
+        <span class="mode-desc">50 states battle it out. A shorter game.</span>
+      </button>
+      <div class="mode-card soon">
+        <span class="mode-emoji">🏛️</span>
+        <span class="mode-name">History Modes</span>
+        <span class="mode-desc">Ancient empires and more — coming soon!</span>
+      </div>
+    </div>
+
+    <div id="levelPick" class="level-pick"></div>
+    <div class="settings-row">
+      <label class="toggle"><input type="checkbox" id="setSound" checked><span></span> 🔊 Sound effects</label>
+    </div>
+    <details class="howto">
+      <summary>How to play</summary>
+      <ol>
+        <li>Choose the country (or state) you want to be, and pick your empire color.</li>
+        <li>Tap <b>any</b> place on the map to learn about it, then press <b>Challenge</b>.</li>
+        <li>The battle wheel starts split in half (<b>1/2</b> for you, <b>1/2</b> for them).</li>
+        <li><b>Brain Boost:</b> answer two questions. Each right answer makes your slice bigger (1/2 → 3/4 → 7/8). Each wrong answer makes theirs bigger. Pick <b>Easy</b> (continents, flags, animals), <b>Medium</b> (capitals, languages, land &amp; weather) or <b>Hard</b> (famous places, foods &amp; traditions, nature). The questions are always about the place you’re battling, and the answers are on its card!</li>
+        <li>Spin the wheel! If it lands on your color, you take over their whole empire. If it lands on theirs, they take over yours.</li>
+        <li>If you lose, choose a new country to play as from the ones still standing.</li>
+        <li>Own the whole map to win! Zoom in to see capitals ★, cities ●, rivers and mountains.</li>
+      </ol>
+      <p class="small">Your game saves automatically on this device. Use the ☰ menu any time to restart.</p>
+    </details>
+    <div id="supportTitle"></div>
+  </div>
+</section>
+
+<!-- ===== GAME ===== -->
+<header id="hud" hidden>
+  <button class="hud-brand" id="btnMenu" aria-label="Menu">☰ <span>Lyman Learning</span></button>
+  <div class="hud-status" id="hudStatus"></div>
+  <div class="hud-actions">
+    <div class="seg" role="group" aria-label="Map view">
+      <button id="btn2d" class="on">2D Map</button><button id="btn3d">3D Globe</button>
+    </div>
+    <button class="icon-btn" id="btnPassport" title="Passport">🛂 <span>Passport</span></button>
+    <button class="icon-btn" id="btnSound" title="Sound on/off">🔊</button>
+  </div>
+</header>
+
+<main id="mapwrap" hidden>
+  <canvas id="map"></canvas>
+  <div id="banner" hidden></div>
+  <div id="tooltip" hidden></div>
+  <div class="search">
+    <input id="search" type="search" placeholder="🔎 Find a place…" autocomplete="off" list="placeList">
+    <datalist id="placeList"></datalist>
+  </div>
+  <div class="zoomctl">
+    <button id="zIn" aria-label="Zoom in">+</button>
+    <button id="zOut" aria-label="Zoom out">−</button>
+    <button id="zReset" aria-label="Reset view">⟳</button>
+  </div>
+  <div id="legend" class="legend"></div>
+  <div id="zoomHint" class="zoom-hint">Zoom in to see capitals, cities, rivers &amp; mountains</div>
+</main>
+
+<!-- ===== MODAL ===== -->
+<div id="modal" class="modal" hidden>
+  <div class="modal-card" id="modalCard" role="dialog" aria-modal="true"></div>
+</div>
+<div id="confetti"></div>
+<div class="corner-stack"><div id="offlineBadge" class="offline-badge" hidden></div><button id="installBtn" class="install-btn" hidden>📲 Get the app</button></div>
+
+<script src="vendor/d3.min.js"></script>
+<script src="vendor/topojson-client.min.js"></script>
+<script src="js/offline-files.js"></script>
+<script src="js/config.js"></script>
+<script src="js/map.js"></script>
+<script src="js/game.js"></script>
+</body>
+</html>

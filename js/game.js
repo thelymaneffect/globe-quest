@@ -1,0 +1,850 @@
+/* Lyman Learning: World Domination Geography Game — game logic & UI */
+(function () {
+  'use strict';
+  const $ = (s) => document.querySelector(s);
+  const SAVE_KEY = (m) => 'lymanWD_save_' + m;
+  const SET_KEY = 'lymanWD_settings';
+  const store = {
+    get(k) { try { return JSON.parse(localStorage.getItem(k)); } catch (e) { return null; } },
+    set(k, v) { try { localStorage.setItem(k, JSON.stringify(v)); } catch (e) { /* storage unavailable */ } },
+    del(k) { try { localStorage.removeItem(k); } catch (e) { /* ignore */ } }
+  };
+
+  const PLAYER_COLORS = [
+    ['Red', '#e2483d'], ['Royal Blue', '#2f5fd0'], ['Purple', '#8a3fc7'], ['Orange', '#f07c1b'],
+    ['Teal', '#0f9c95'], ['Gold', '#e8b007'], ['Pink', '#e0408f'], ['Forest Green', '#2a8a3e']
+  ];
+  // soft "map" colors for computer empires — neighbors get different colors
+  const AI_COLORS = ['#f6d7a7', '#cfe3b5', '#f3c4c4', '#c9d8ef', '#e6cfe8', '#f8e6a0', '#bfe3dc', '#f2d0b5', '#d8d3ec', '#e9e3c4'];
+
+  const MODES = {
+    world: {
+      key: 'world', title: 'World Mode', unit: 'country', units: 'countries',
+      scripts: ['data/world.js', 'data/world-meta.js', 'data/info-africa.js', 'data/info-asia.js', 'data/info-europe.js', 'data/info-americas-oceania.js', 'data/extras.js', 'data/nature.js'],
+      geo: () => window.GEO_WORLD, obj: 'countries', info: () => window.INFO,
+      flag: (c) => `flags/${c.toLowerCase()}.svg`
+    },
+    us: {
+      key: 'us', title: 'USA Mode', unit: 'state', units: 'states',
+      scripts: ['data/us.js', 'data/info-us.js', 'data/extras.js', 'data/nature.js'],
+      geo: () => window.GEO_US, obj: 'states', info: () => window.INFO_US,
+      flag: (c) => `flags/us/${window.INFO_US[c][0].toLowerCase().replace(/ /g, '-')}.svg`
+    }
+  };
+  const DETAIL_SCRIPTS = ['data/places.js', 'data/rivers.js', 'data/lakes.js', 'data/features.js'];
+
+  let settings = Object.assign({ sound: true, view: '2d', legendOpen: window.innerWidth > 900 }, store.get(SET_KEY) || {});
+  if (!settings.level) settings.level = settings.boost === false ? 'off' : 'medium';
+  const saveSettings = () => store.set(SET_KEY, settings);
+
+  let M = null;      // current mode def
+  let S = null;      // game state (saved)
+  let map = null;    // GameMap
+  let regions = [];  // playable region codes
+  let colorAI = {};  // empire -> color
+
+  /* ---------------- script loading ---------------- */
+  const loaded = new Set();
+  function loadScript(src) {
+    if (loaded.has(src)) return Promise.resolve();
+    return new Promise((res, rej) => {
+      const s = document.createElement('script'); s.src = src;
+      s.onload = () => { loaded.add(src); res(); }; s.onerror = () => rej(new Error('Could not load ' + src));
+      document.head.appendChild(s);
+    });
+  }
+  const loadAll = (list) => Promise.all(list.map(loadScript));
+
+  /* ---------------- sound (no files needed) ---------------- */
+  let actx = null;
+  function tone(freq, dur, type = 'sine', vol = 0.15, when = 0) {
+    if (!settings.sound) return;
+    try {
+      actx = actx || new (window.AudioContext || window.webkitAudioContext)();
+      const t0 = actx.currentTime + when, o = actx.createOscillator(), g = actx.createGain();
+      o.type = type; o.frequency.setValueAtTime(freq, t0);
+      g.gain.setValueAtTime(vol, t0); g.gain.exponentialRampToValueAtTime(0.001, t0 + dur);
+      o.connect(g).connect(actx.destination); o.start(t0); o.stop(t0 + dur + 0.05);
+    } catch (e) { /* audio unavailable */ }
+  }
+  const sfx = {
+    click: () => tone(660, 0.08, 'triangle', 0.08),
+    spin: () => { let t = 0; for (let i = 0; i < 34; i++) { tone(1100, 0.03, 'square', 0.04, t); t += 0.035 + i * i * 0.00028; } },
+    win: () => [523, 659, 784, 1047].forEach((f, i) => tone(f, 0.35, 'triangle', 0.14, i * 0.12)),
+    lose: () => [392, 330, 262, 196].forEach((f, i) => tone(f, 0.4, 'sawtooth', 0.06, i * 0.16)),
+    right: () => [660, 880].forEach((f, i) => tone(f, 0.2, 'triangle', 0.12, i * 0.1)),
+    wrong: () => tone(180, 0.35, 'square', 0.06)
+  };
+
+  /* ---------------- helpers ---------------- */
+  const info = (c) => M.info()[c];
+  const nameOf = (c) => (info(c) ? info(c)[0] : c);
+  const shortCap = (c) => info(c)[1].split(/ \(|;|,/)[0].trim();
+  const shuffle = (a) => { a = a.slice(); for (let i = a.length - 1; i > 0; i--) { const j = (Math.random() * (i + 1)) | 0; [a[i], a[j]] = [a[j], a[i]]; } return a; };
+  const pick = (a) => a[(Math.random() * a.length) | 0];
+  const esc = (s) => String(s).replace(/[&<>"]/g, (ch) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[ch]));
+  const ordinal = (n) => n + (['th', 'st', 'nd', 'rd'][(n % 100 > 10 && n % 100 < 14) ? 0 : (n % 10 < 4 ? n % 10 : 0)] || 'th');
+  function fmtPop(m) {
+    if (m >= 1000) return `about ${(m / 1000).toFixed(m >= 1395 ? 1 : 2).replace(/\.?0+$/, '')} billion`;
+    if (m >= 10) return `about ${Math.round(m)} million`;
+    if (m >= 1) return `about ${(Math.round(m * 10) / 10)} million`;
+    const n = m * 1e6; const r = n >= 100000 ? Math.round(n / 10000) * 10000 : n >= 10000 ? Math.round(n / 1000) * 1000 : Math.round(n / 100) * 100;
+    return `about ${r.toLocaleString()}`;
+  }
+  const regionsOf = (emp) => regions.filter((r) => S.own[r] === emp);
+  const empires = () => { const m = new Map(); for (const r of regions) { const e = S.own[r]; m.set(e, (m.get(e) || 0) + 1); } return m; };
+  const empireLabel = (e) => { const n = regionsOf(e).length; return n > 1 ? `${nameOf(e)}’s empire` : nameOf(e); };
+  const colorOf = (r) => { const e = S && S.own ? S.own[r] : r; if (S && S.player && e === S.player) return S.color; return colorAI[e] || '#e4ddd0'; };
+
+  /* ---------------- modal ---------------- */
+  const modal = $('#modal'), card = $('#modalCard');
+  let modalOnClose = null;
+  function openModal(html, opts = {}) {
+    card.className = 'modal-card' + (opts.wide ? ' wide' : '');
+    card.innerHTML = (opts.noClose ? '' : '<button class="close-x" data-close aria-label="Close">×</button>') + html;
+    modal.hidden = false; modalOnClose = opts.onClose || null; card.scrollTop = 0;
+    card.querySelectorAll('[data-close]').forEach((b) => b.addEventListener('click', closeModal));
+  }
+  function closeModal() { modal.hidden = true; card.innerHTML = ''; stopSpeech(); const f = modalOnClose; modalOnClose = null; f && f(); }
+  modal.addEventListener('click', (e) => { if (e.target === modal && !card.querySelector('[data-lock]')) closeModal(); });
+  document.addEventListener('keydown', (e) => { if (e.key === 'Escape' && !modal.hidden && !card.querySelector('[data-lock]')) closeModal(); });
+
+  /* ---------------- speech ---------------- */
+  function speak(text) {
+    if (!('speechSynthesis' in window)) return;
+    stopSpeech();
+    const u = new SpeechSynthesisUtterance(text); u.rate = 0.92; u.lang = 'en-US';
+    // on-device voices work in airplane mode; online-only voices (like Chrome's "Google" voices) don't
+    const all = speechSynthesis.getVoices(), local = all.filter((x) => x.localService);
+    const pool = local.length ? local : all;
+    const v = pool.find((x) => /en[-_]US/i.test(x.lang) && /Samantha|Natural|Aria|Jenny|Ava|Allison/i.test(x.name)) || pool.find((x) => /en[-_]US/i.test(x.lang)) || pool.find((x) => /^en/i.test(x.lang));
+    if (v) u.voice = v;
+    speechSynthesis.speak(u);
+  }
+  function stopSpeech() { if ('speechSynthesis' in window) speechSynthesis.cancel(); }
+
+  /* ---------------- confetti ---------------- */
+  function confetti(n = 120) {
+    const box = $('#confetti'); const cols = ['#e2483d', '#f2b632', '#2f6fd6', '#2e9e5b', '#8a3fc7', '#e0408f'];
+    for (let i = 0; i < n; i++) {
+      const el = document.createElement('i');
+      el.style.left = Math.random() * 100 + 'vw'; el.style.background = pick(cols);
+      el.style.animationDuration = 1.8 + Math.random() * 1.8 + 's'; el.style.animationDelay = Math.random() * 0.6 + 's';
+      box.appendChild(el); setTimeout(() => el.remove(), 4200);
+    }
+  }
+
+  /* ================= SUPPORT & GAME REQUESTS ================= */
+  const cfg = () => window.LYMAN_CONFIG || {};
+  function supportHTML() {
+    return `<div class="support"><p>These games are free, with no ads.</p>
+      <div class="support-row"><button class="btn support-btn" data-support>💛 Support us</button><button class="btn ghost" data-request>💡 Request a game</button></div></div>`;
+  }
+  function showSupport() {
+    const c = cfg();
+    const paras = (c.supportMessage || '').split(/\n\n+/).map((t) => `<p>${esc(t)}</p>`).join('');
+    const sign = esc(c.supportSignoff || '').replace(/\n/g, '<br>');
+    const btns = [c.paypalUrl && `<a class="btn pay paypal" href="${esc(c.paypalUrl)}" target="_blank" rel="noopener">Give with PayPal</a>`,
+      c.squareUrl && `<a class="btn pay square" href="${esc(c.squareUrl)}" target="_blank" rel="noopener">Give with Square</a>`].filter(Boolean).join('');
+    openModal(`<h3 class="mtitle">💛 Support Lyman Learning</h3><div class="support-msg">${paras}<p class="signoff">${sign}</p></div>
+      <div class="pay-row">${btns || '<p class="small center">Donation links coming soon!</p>'}</div>
+      ${navigator.onLine ? '' : '<p class="small center" style="margin-top:10px">✈️ You’re offline right now — donating needs the internet, so you can do it later.</p>'}`);
+  }
+  function showRequest() {
+    openModal(`<h3 class="mtitle">💡 Request a New Game</h3>
+      <form id="reqForm" class="req-form">
+        <label for="reqIdea">What game would you like us to make?</label>
+        <textarea id="reqIdea" name="idea" rows="4" maxlength="2000" required placeholder="Tell us your idea…"></textarea>
+        <label for="reqEmail">Your email <span class="opt">(optional)</span></label>
+        <p class="hint">If we have questions about the details, we can email you so we design it just the way you like. Or stay anonymous and we’ll use our creativity!</p>
+        <input id="reqEmail" name="email" type="email" maxlength="200" placeholder="you@example.com" autocomplete="email">
+        <div id="reqMsg" class="req-msg"></div>
+        <div class="btn-row"><button class="btn ghost" type="button" data-close>Cancel</button><button class="btn go" type="submit" id="reqSend">Send my idea</button></div>
+      </form>`);
+    $('#reqForm').onsubmit = async (e) => {
+      e.preventDefault();
+      const idea = $('#reqIdea').value.trim(), email = $('#reqEmail').value.trim(), msg = $('#reqMsg');
+      if (!idea) return;
+      const key = cfg().web3formsKey;
+      const url = key ? 'https://api.web3forms.com/submit' : cfg().requestFormEndpoint;
+      if (!url) { msg.textContent = 'Sorry — this form isn’t connected yet. Please check back soon!'; return; }
+      if (!navigator.onLine) { msg.textContent = 'You’re offline (airplane mode). Please send your idea next time you’re connected to the internet!'; return; }
+      $('#reqSend').disabled = true; msg.textContent = 'Sending…';
+      try {
+        const body = key ? { access_key: key, subject: 'New game request (Lyman Learning)', from_name: 'Lyman Learning game request', idea }
+          : { idea, _subject: 'New game request (Lyman Learning)' };
+        if (email) { body.email = email; if (!key) body._replyto = email; }
+        const res = await fetch(url, { method: 'POST', headers: { 'Content-Type': 'application/json', Accept: 'application/json' }, body: JSON.stringify(body) });
+        if (!res.ok) throw new Error('send failed');
+        $('#reqForm').innerHTML = '<div class="req-done">🎉 Thank you! We got your idea.</div><div class="btn-row"><button class="btn gold" type="button" data-close>Close</button></div>';
+        card.querySelectorAll('[data-close]').forEach((x) => x.addEventListener('click', closeModal));
+      } catch (err) { msg.textContent = 'Hmm, that didn’t send. Please try again in a minute.'; $('#reqSend').disabled = false; }
+    };
+  }
+  document.addEventListener('click', (e) => {
+    if (e.target.closest('[data-support]')) { sfx.click(); showSupport(); }
+    else if (e.target.closest('[data-request]')) { sfx.click(); showRequest(); }
+  });
+
+  /* ================= TITLE SCREEN ================= */
+  function showTitle() {
+    $('#title').hidden = false; $('#hud').hidden = true; $('#mapwrap').hidden = true; updateInstallBtn(); if (typeof updateOfflineBadge === 'function') updateOfflineBadge();
+    const box = $('#continueBox'); box.innerHTML = '';
+    for (const k of ['world', 'us']) {
+      const sv = store.get(SAVE_KEY(k));
+      if (sv && sv.phase && sv.phase !== 'over') {
+        const total = Object.keys(sv.own || {}).length;
+        const mine = sv.player ? Object.values(sv.own).filter((e) => e === sv.player).length : 0;
+        const b = document.createElement('button'); b.className = 'continue-btn';
+        b.innerHTML = `▶ Continue ${MODES[k].title}<small>${sv.phase === 'pick' ? 'Choosing a country' : `${mine} of ${total} ${MODES[k].units} • ${sv.lives || 0} lives used`}</small>`;
+        b.onclick = () => { sfx.click(); startMode(k, sv); };
+        box.appendChild(b);
+      }
+    }
+    renderLevelPicker($('#levelPick')); $('#setSound').checked = settings.sound;
+    $('#supportTitle').innerHTML = supportHTML();
+  }
+  document.querySelectorAll('.mode-card[data-mode]').forEach((b) => b.addEventListener('click', () => {
+    const k = b.dataset.mode; sfx.click();
+    const sv = store.get(SAVE_KEY(k));
+    if (sv && sv.phase && sv.phase !== 'over' && sv.phase !== 'pick') {
+      openModal(`<h3 class="mtitle">Start over?</h3><p class="center">You already have a ${MODES[k].title} game going. Starting a new one will erase it.</p>
+        <div class="btn-row"><button class="btn ghost" id="mKeep">Keep playing it</button><button class="btn primary" id="mNew">Start new game</button></div>`);
+      $('#mKeep').onclick = () => { closeModal(); startMode(k, sv); };
+      $('#mNew').onclick = () => { closeModal(); store.del(SAVE_KEY(k)); startMode(k, null); };
+    } else startMode(k, null);
+  }));
+  function renderLevelPicker(el) {
+    el.innerHTML = `<div class="lvl-title">🧠 Brain Boost questions</div><div class="lvl-seg">${Object.entries(LEVELS).map(([k, v]) => `<button data-l="${k}" class="${settings.level === k ? 'on' : ''}">${v.label}</button>`).join('')}</div><div class="lvl-desc">${LEVELS[settings.level].desc}</div>`;
+    el.querySelectorAll('button').forEach((b) => b.onclick = () => { settings.level = b.dataset.l; saveSettings(); sfx.click(); renderLevelPicker(el); });
+  }
+  $('#setSound').addEventListener('change', (e) => { settings.sound = e.target.checked; saveSettings(); updateSoundBtn(); });
+
+  /* ================= START A MODE ================= */
+  async function startMode(key, saved) {
+    M = MODES[key];
+    $('#title').hidden = true; $('#hud').hidden = false; $('#mapwrap').hidden = false; $('#installBtn').hidden = true; $('#offlineBadge').hidden = true;
+    banner('Loading the map…');
+    try { await loadAll(M.scripts); } catch (e) { banner('Sorry — the map could not load. Please refresh.'); return; }
+    const topo = M.geo();
+    const fc = topojson.feature(topo, topo.objects[M.obj]);
+    const feats = fc.features;
+    if (key === 'world') { // Tuvalu is too small for the base map — add it as a dot
+      const tv = window.WORLD_META.TV; feats.push({ type: 'Feature', id: 'TV', properties: { n: 'Tuvalu', o: 'TV' }, geometry: { type: 'Point', coordinates: [tv.ll[1], tv.ll[0]] } });
+    }
+    regions = [...new Set(feats.map((f) => f.properties.o).filter(Boolean))].filter((c) => info(c));
+    regions.sort((a, b) => nameOf(a).localeCompare(nameOf(b)));
+
+    if (!map) {
+      map = new GameMap($('#map'));
+      window.__map = map; // handy for debugging in the browser console
+      map.onClick = onRegionClick;
+      map.onHover = onHover;
+      map.onZoom = (z) => { $('#zoomHint').style.opacity = z >= 2.2 ? 0 : 1; };
+    }
+    map.colorOf = colorOf;
+    map.empireOf = (r) => (S ? S.own[r] : r);
+    map.labelName = (r) => (M.key === 'us' ? nameOf(r) : (info(r) ? info(r)[0].replace(/ \(.*\)$/, '') : r));
+    map.view = settings.view;
+    map.setMode(key, feats, topo, M.obj);
+    map.setView(settings.view);
+    setViewButtons();
+    assignAIColors(topo);
+
+    S = saved || { v: 1, mode: key, phase: 'pick', player: null, color: null, own: Object.fromEntries(regions.map((r) => [r, r])), lives: 0, battles: 0, wins: 0, visited: [], conquered: [], startedAs: null, factIdx: {}, lastBeatBy: null, log: [] };
+    // make sure save matches the current map
+    for (const r of regions) if (!S.own[r]) S.own[r] = r;
+    save();
+    buildSearch(); refresh();
+    banner(null);
+    loadAll(DETAIL_SCRIPTS).then(() => {
+      let rivers = window.RIVERS, features = window.GEOFEATURES;
+      if (key === 'us') { // keep only rivers & mountains that are inside the 50 states
+        const usa = topojson.merge(topo, topo.objects.states.geometries);
+        const inUS = (pt) => d3.geoContains(usa, pt);
+        features = features.filter((f) => inUS([f[1], f[2]]));
+        rivers = { type: 'FeatureCollection', features: rivers.features.filter((r) => {
+          const lines = r.geometry.type === 'LineString' ? [r.geometry.coordinates] : r.geometry.coordinates;
+          return lines.some((l) => l.some((pt, i) => i % 6 === 0 && inUS(pt)));
+        }) };
+      }
+      map.detail = { places: window.PLACES.filter((p) => (key === 'us' ? p[5] === 'US' : true)), rivers, lakes: window.LAKES, features };
+      map.draw();
+    }).catch(() => { /* details are optional */ });
+    if (S.phase === 'pick') introPick();
+    else if (S.phase === 'respawn') respawnPrompt();
+    else if (S.phase === 'won') showWin();
+    else if (S.phase === 'lost') showGameOver();
+  }
+
+  function assignAIColors(topo) {
+    // greedy coloring so neighboring countries/states get different colors
+    const geoms = topo.objects[M.obj].geometries;
+    const nb = topojson.neighbors(geoms);
+    const order = geoms.map((g, i) => i).sort((a, b) => nb[b].length - nb[a].length);
+    colorAI = {};
+    for (const i of order) {
+      const o = geoms[i].properties.o; if (!o || colorAI[o]) continue;
+      const used = new Set(nb[i].map((j) => colorAI[geoms[j].properties.o]).filter(Boolean));
+      colorAI[o] = AI_COLORS.find((c) => !used.has(c)) || AI_COLORS[i % AI_COLORS.length];
+    }
+    for (const r of regions) if (!colorAI[r]) colorAI[r] = AI_COLORS[r.charCodeAt(0) % AI_COLORS.length];
+  }
+
+  function save() { if (S && M) store.set(SAVE_KEY(M.key), S); }
+
+  /* ================= HUD / LEGEND ================= */
+  function refresh() {
+    map.highlight = new Set(S.player ? regionsOf(S.player) : []);
+    map.invalidateBorders(); map.draw();
+    const hs = $('#hudStatus');
+    if (S.player && (S.phase === 'play' || S.phase === 'won')) {
+      const n = regionsOf(S.player).length, pct = Math.round(n / regions.length * 100);
+      hs.innerHTML = `<img class="flag" src="${M.flag(S.player)}" alt=""><span class="meta">${esc(nameOf(S.player))} — ${n} / ${regions.length} ${M.units} • ❤️ ${S.lives} ${S.lives === 1 ? 'life' : 'lives'} used</span><span class="bar"><i style="width:${pct}%"></i></span>`;
+    } else if (S.phase === 'pick') hs.innerHTML = `<span class="meta">${M.title}: choose your ${M.unit}</span>`;
+    else if (S.phase === 'respawn') hs.innerHTML = `<span class="meta">Choose a new ${M.unit} to play as</span>`;
+    else hs.innerHTML = '';
+    renderLegend();
+  }
+
+  function renderLegend() {
+    const lg = $('#legend'); const em = empires();
+    const top = [...em.entries()].filter(([e, n]) => n > 1 && e !== S.player).sort((a, b) => b[1] - a[1]).slice(0, 4);
+    let html = `<h4>Map key <button id="lgToggle" aria-label="Show or hide key">${settings.legendOpen ? '▾' : '▸'}</button></h4><div class="body">`;
+    if (S.player) html += `<div class="row"><span class="sw" style="background:${S.color};box-shadow:0 0 0 2px #fff inset"></span>You (${esc(nameOf(S.player))})</div>`;
+    for (const [e, n] of top) html += `<div class="row"><span class="sw" style="background:${colorAI[e]}"></span>${esc(nameOf(e))}’s empire (${n})</div>`;
+    html += `<div class="row"><span class="sw" style="background:repeating-linear-gradient(45deg,#f6d7a7 0 4px,#cfe3b5 4px 8px,#c9d8ef 8px 12px)"></span>Free ${M.units}</div>`;
+    html += `<div class="row"><span class="sym" style="color:#d62828">★</span>Capital city</div><div class="row"><span class="sym">●</span>Major city</div>
+      <div class="row"><span class="sym" style="color:#4f97cf">〰</span>River</div><div class="row"><span class="sym" style="color:#7a5230">▲</span>Mountains</div></div>`;
+    lg.innerHTML = html; lg.classList.toggle('collapsed', !settings.legendOpen);
+    $('#lgToggle').onclick = () => { settings.legendOpen = !settings.legendOpen; saveSettings(); renderLegend(); };
+  }
+
+  let bannerTimer = null;
+  function banner(text, ms) {
+    const b = $('#banner'); clearTimeout(bannerTimer);
+    if (!text) { b.hidden = true; return; }
+    b.textContent = text; b.hidden = false;
+    if (ms) bannerTimer = setTimeout(() => (b.hidden = true), ms);
+  }
+
+  function onHover(f, xy) {
+    const tt = $('#tooltip');
+    if (!f || !xy || !S) { tt.hidden = true; return; }
+    const r = f.o, e = S.own[r];
+    let sub = '';
+    if (f.id !== r && f.nm) sub = `${f.nm} — part of ${nameOf(r)}`;
+    if (S.player && e === S.player) sub = (sub ? sub + ' • ' : '') + 'Your land';
+    else if (e !== r) sub = (sub ? sub + ' • ' : '') + `Ruled by ${nameOf(e)}`;
+    tt.innerHTML = `${esc(nameOf(r))}${sub ? `<small>${esc(sub)}</small>` : ''}`;
+    tt.hidden = false;
+    const x = Math.min(xy[0] + 14, map.w - tt.offsetWidth - 6), y = Math.max(6, xy[1] - 40);
+    tt.style.left = x + 'px'; tt.style.top = y + 'px';
+  }
+
+  /* ================= SEARCH ================= */
+  function buildSearch() {
+    const dl = $('#placeList'); dl.innerHTML = regions.map((r) => `<option value="${esc(nameOf(r))}">`).join('');
+    const inp = $('#search'); inp.value = ''; inp.placeholder = `🔎 Find a ${M.unit}…`;
+  }
+  $('#search').addEventListener('change', (e) => {
+    const v = e.target.value.trim().toLowerCase(); if (!v) return;
+    const r = regions.find((c) => nameOf(c).toLowerCase() === v) || regions.find((c) => nameOf(c).toLowerCase().startsWith(v)) || regions.find((c) => nameOf(c).toLowerCase().includes(v));
+    if (r) { map.flyTo(r); setTimeout(() => onRegionClick(r), 650); e.target.value = ''; e.target.blur(); }
+  });
+
+  /* ================= VIEW CONTROLS ================= */
+  function setViewButtons() { $('#btn2d').classList.toggle('on', settings.view === '2d'); $('#btn3d').classList.toggle('on', settings.view === '3d'); }
+  $('#btn2d').onclick = () => { settings.view = '2d'; saveSettings(); map.setView('2d'); setViewButtons(); sfx.click(); };
+  $('#btn3d').onclick = () => { settings.view = '3d'; saveSettings(); map.setView('3d'); setViewButtons(); sfx.click(); };
+  $('#zIn').onclick = () => map.zoomBy(1.8);
+  $('#zOut').onclick = () => map.zoomBy(1 / 1.8);
+  $('#zReset').onclick = () => map.resetView(true);
+  function updateSoundBtn() { $('#btnSound').textContent = settings.sound ? '🔊' : '🔇'; }
+  $('#btnSound').onclick = () => { settings.sound = !settings.sound; saveSettings(); updateSoundBtn(); sfx.click(); };
+  updateSoundBtn();
+  $('#btnPassport').onclick = () => { sfx.click(); showPassport(); };
+  $('#btnMenu').onclick = () => { sfx.click(); showMenu(); };
+
+  function showMenu() {
+    openModal(`<h3 class="mtitle">Menu</h3>
+      <div class="btn-row" style="flex-direction:column">
+        <button class="btn gold" data-close>▶ Keep playing</button>
+        <button class="btn ghost" id="mnHow">❓ How to play</button>
+        ${canInstall() ? '<button class="btn ghost" id="mnInstall">📲 Get the app</button>' : ''}
+        <button class="btn ghost" id="mnHome">🏠 Main menu (your game is saved)</button>
+        <button class="btn primary" id="mnRestart">🔄 Restart this game</button>
+      </div>
+      <p class="small center" style="margin-top:12px">${offlineReady ? '✈️ This game is saved on your device — it works in airplane mode.' : ''}</p>
+      <div id="mnLevel" class="level-pick" style="margin-top:16px"></div>${supportHTML()}`);
+    renderLevelPicker($('#mnLevel'));
+    $('#mnHome').onclick = () => { closeModal(); save(); showTitle(); };
+    $('#mnHow').onclick = () => { closeModal(); showHow(); };
+    if ($('#mnInstall')) $('#mnInstall').onclick = () => { closeModal(); doInstall(); };
+    $('#mnRestart').onclick = () => {
+      openModal(`<h3 class="mtitle">Restart?</h3><p class="center">This erases your ${M.title} progress and starts fresh.</p>
+        <div class="btn-row"><button class="btn ghost" data-close>Cancel</button><button class="btn primary" id="rsYes">Yes, restart</button></div>`);
+      $('#rsYes').onclick = () => { closeModal(); store.del(SAVE_KEY(M.key)); startMode(M.key, null); };
+    };
+  }
+  function showHow() {
+    openModal(`<h3 class="mtitle">How to play</h3>${$('.howto ol').outerHTML}<div class="btn-row"><button class="btn gold" data-close>Got it!</button></div>`);
+  }
+
+  /* ================= PICK YOUR COUNTRY ================= */
+  function introPick() {
+    banner(`👆 Tap the ${M.unit} you want to be!`);
+    openModal(`<div style="text-align:center;font-size:54px">${M.key === 'us' ? '🇺🇸' : '🌍'}</div>
+      <h3 class="mtitle">Choose your ${M.unit}!</h3>
+      <p class="center">Tap any ${M.unit} on the map to learn about it. When you find the one you want, press <b>Play as…</b></p>
+      <p class="center small">Tip: drag to move, pinch or scroll to zoom, or use the 🔎 search box.</p>
+      <div class="btn-row"><button class="btn gold" data-close>Let’s go!</button></div>`);
+  }
+
+  function chooseColor(r) {
+    let sel = PLAYER_COLORS[0][1];
+    openModal(`<img class="flag-big" src="${M.flag(r)}" alt="Flag of ${esc(nameOf(r))}" style="height:80px">
+      <h3 class="mtitle">You are ${esc(nameOf(r))}!</h3><p class="center">Pick your empire color:</p>
+      <div class="colors">${PLAYER_COLORS.map(([n, c], i) => `<button data-c="${c}" title="${n}" aria-label="${n}" class="${i === 0 ? 'sel' : ''}" style="background:${c}"></button>`).join('')}</div>
+      <div class="btn-row"><button class="btn go" id="ccGo">Start conquering! ⚔️</button></div>`);
+    card.querySelectorAll('.colors button').forEach((b) => b.onclick = () => { card.querySelectorAll('.colors button').forEach((x) => x.classList.remove('sel')); b.classList.add('sel'); sel = b.dataset.c; sfx.click(); });
+    $('#ccGo').onclick = () => {
+      S.player = r; S.color = sel; S.startedAs = r; S.phase = 'play'; addVisited(r); save();
+      closeModal(); refresh(); sfx.win();
+      banner(`You are ${nameOf(r)}! Tap any ${M.unit} to challenge it.`, 5000);
+    };
+  }
+
+  /* ================= INFO CARD ================= */
+  function addVisited(r) { if (!S.visited.includes(r)) S.visited.push(r); }
+  function nextFact(r) {
+    const facts = info(r)[M.key === 'us' ? 7 : 6];
+    let st = S.factIdx[r];
+    if (!st || !st.order || st.order.length !== facts.length || st.pos >= facts.length) {
+      let order = shuffle(facts.map((_, i) => i));
+      if (st && st.order && order[0] === st.order[st.order.length - 1] && order.length > 1) order.push(order.shift());
+      st = { order, pos: 0 };
+    }
+    const f = facts[st.order[st.pos]]; st.pos++; S.factIdx[r] = st; save();
+    return f;
+  }
+
+  function sizeLine(r) {
+    const ref = S.player && S.player !== r ? S.player : null;
+    const a = map.regionArea(r) || (M.key === 'world' && window.WORLD_META[r] ? window.WORLD_META[r].area : 0);
+    const fmtA = (x) => x >= 1e6 ? (x / 1e6).toFixed(1) + ' million' : Math.round(x).toLocaleString();
+    let line = `${fmtA(a)} km² (${fmtA(a * 0.3861)} sq mi)`;
+    if (ref) {
+      const b = map.regionArea(ref) || (window.WORLD_META && window.WORLD_META[ref] ? window.WORLD_META[ref].area : 0);
+      if (a && b) {
+        const ratio = a / b;
+        if (ratio >= 1.15) line += `<br>${esc(nameOf(r))} is about <b>${ratio >= 10 ? Math.round(ratio).toLocaleString() : ratio.toFixed(1)}×</b> bigger than ${esc(nameOf(ref))}!`;
+        else if (ratio <= 0.87) line += `<br>${esc(nameOf(ref))} is about <b>${(1 / ratio) >= 10 ? Math.round(1 / ratio).toLocaleString() : (1 / ratio).toFixed(1)}×</b> bigger than ${esc(nameOf(r))}!`;
+        else line += `<br>About the same size as ${esc(nameOf(ref))}!`;
+      }
+    }
+    return line;
+  }
+
+  function cardHTML(r, fact, featName) {
+    const I = info(r); const us = M.key === 'us';
+    const e = S.own[r];
+    let status = '';
+    if (featName && featName !== I[0] && featName !== nameOf(r)) status += `<div class="sub" style="margin:2px 0 0">📍 ${esc(featName)} is part of ${esc(I[0])}</div>`;
+    if (S.player && e === S.player) status += `<div class="mine">🏰 This is part of your empire!</div>`;
+    else if (e !== r) status += `<div class="ruled">⚔️ Now ruled by ${esc(nameOf(e))} (${regionsOf(e).length} ${M.units})</div>`;
+    let rows = '';
+    if (us) {
+            rows += `<li><span class="ico">🏷️</span><div><b>Nickname</b>${esc(I[2])}</div></li>`;
+      rows += `<li><span class="ico">📜</span><div><b>Became a state</b>${I[3]} — the ${ordinal(I[4])} state</div></li>`;
+      rows += `<li><span class="ico">🐦</span><div><b>State bird</b>${esc(I[5])}</div></li>`;
+      rows += `<li><span class="ico">👨‍👩‍👧</span><div><b>Population</b>${fmtPop(I[6])} people</div></li>`;
+    } else {
+      rows += `<li><span class="ico">👋</span><div><b>Say hello!</b>${esc(I[4])} <button class="chip" id="sayHi" style="padding:2px 10px;margin-left:4px">🔊</button></div></li>`;
+      rows += `<li><span class="ico">👨‍👩‍👧</span><div><b>Population</b>${fmtPop(I[5])} people</div></li>`;
+    }
+    const ex = extra(r);
+    if (ex[0]) rows += `<li><span class="ico">🏛️</span><div><b>Famous place</b>${esc(ex[0])}</div></li>`;
+    if (ex[1]) rows += `<li><span class="ico">🎉</span><div><b>Famous for</b>${esc(ex[1])}</div></li>`;
+    const nat = nature(r);
+    if (nat.animal) rows += `<li><span class="ico">🌿</span><div><b>Nature</b>Animal: ${esc(nat.animal)}${nat.lands.length ? `<br>Land: ${esc(nat.lands.map((k) => LANDS[k][0]).join(', '))}` : ''}</div></li>`;
+    rows += `<li><span class="ico">📏</span><div><b>Size</b>${sizeLine(r)}</div></li>`;
+    return `<img class="flag-big" src="${M.flag(r)}" alt="Flag of ${esc(I[0])}">
+      <div class="cname">${esc(I[0])}</div>
+      ${us ? `<div class="sub">⭐ Capital: ${esc(I[1])}<span class="langs">🧭 Region: <b>${esc(continentOf(r))}</b></span></div>` : `<div class="sub">⭐ Capital: ${esc(I[1])}<span class="langs">🌎 Continent: <b>${esc(TWO_CONTINENTS[r] ? TWO_CONTINENTS[r].join(' & ') : continentOf(r))}</b></span><span class="langs">🗣️ Language: <b>${esc(I[2])}</b>${I[3] ? `<br><span class="also">Also spoken: ${esc(I[3])}</span>` : ''}</span></div>`}
+      ${status}
+      <div class="didyou" id="factBox"><b>💡 Did you know?</b><span id="factText">${esc(fact)}</span></div>
+      <div class="card-tools"><button class="chip" id="readAloud">🔊 Read aloud</button><button class="chip" id="moreFact">🔀 Another fact</button><button class="chip" id="zoomTo">🔎 Zoom to it</button></div>
+      <ul class="facts">${rows}</ul>`;
+  }
+
+  function readCard(r) {
+    const I = info(r); const fact = $('#factText') ? $('#factText').textContent : '';
+    let t;
+    if (M.key === 'us') t = `${I[0]}. The capital is ${I[1]}. Its nickname is ${I[2]}. It became the ${ordinal(I[4])} state in ${I[3]}. Did you know? ${fact}`;
+    else {
+      const hi = I[4].split(' (')[0];
+      t = `${I[0]}. The capital is ${I[1].replace(/;/g, ',')}. People speak ${I[2]}${I[3] ? `, and also ${I[3]}` : ''}. To say hello, say: ${hi}. Did you know? ${fact}`;
+    }
+    const ex = extra(r);
+    if (ex[0]) t += ` A famous place to visit is ${ex[0]}. ${I[0]} is famous for ${ex[1]}.`;
+    const nat = nature(r);
+    if (nat.animal) t += ` An animal that lives there is the ${nat.animal}.${nat.lands.length ? ` The land has ${nat.lands.map((k) => LANDS[k][0]).join(', ')}.` : ''}`;
+    speak(t);
+  }
+
+  function wireCardTools(r) {
+    $('#readAloud').onclick = () => readCard(r);
+    $('#moreFact').onclick = () => { $('#factText').textContent = nextFact(r); sfx.click(); };
+    $('#zoomTo').onclick = () => { closeModal(); map.flyTo(r); };
+    const hi = $('#sayHi'); if (hi) hi.onclick = () => speak(info(r)[4].split(' (')[0]);
+  }
+
+  function onRegionClick(r, feat) {
+    if (!S || !modal.hidden) return;
+    sfx.click(); addVisited(r); save();
+    const fact = nextFact(r); const featName = feat && feat.id !== r ? feat.nm : null;
+    const body = cardHTML(r, fact, featName);
+    const e = S.own[r];
+    let btns = '';
+    if (S.phase === 'pick') btns = `<button class="btn ghost" data-close>Keep looking</button><button class="btn go" id="act">Play as ${esc(nameOf(r))}!</button>`;
+    else if (S.phase === 'play') {
+      if (e === S.player) btns = `<button class="btn gold" data-close>Close</button>`;
+      else btns = `<button class="btn ghost" data-close>Not now</button><button class="btn primary" id="act">⚔️ Challenge ${esc(empireLabel(e))}!</button>`;
+    } else if (S.phase === 'respawn') {
+      if (e === S.lastBeatBy) btns = `<div class="small center" style="width:100%">${esc(nameOf(e))} just beat you — pick someone else!</div><button class="btn ghost" data-close>OK</button>`;
+      else btns = `<button class="btn ghost" data-close>Keep looking</button><button class="btn go" id="act">Respawn as ${esc(empireLabel(e))}</button>`;
+    } else btns = `<button class="btn gold" data-close>Close</button>`;
+    openModal(body + `<div class="btn-row">${btns}</div>`);
+    wireCardTools(r);
+    const act = $('#act');
+    if (act) act.onclick = () => {
+      if (S.phase === 'pick') chooseColor(r);
+      else if (S.phase === 'play') startBattle(e, r);
+      else if (S.phase === 'respawn') doRespawn(e);
+    };
+  }
+
+  /* ================= BATTLE ================= */
+  /* ---------- Brain Boost questions ----------
+     Both questions are always about the place you are battling, and every answer is shown
+     on that place's card — so reading the card is how you get the answers right. */
+  const LEVELS = {
+    off: { label: 'Off', desc: 'No questions — the wheel stays 50/50.' },
+    easy: { label: 'Easy', desc: 'Continents, flags and animals.' },
+    medium: { label: 'Medium', desc: 'Capitals, languages, and land & weather.' },
+    hard: { label: 'Hard', desc: 'Famous places, foods & traditions, and nature.' }
+  };
+  // Countries that sit on two continents: the first is the answer, the second is never offered as a wrong answer.
+  const TWO_CONTINENTS = { RU: ['Europe', 'Asia'], TR: ['Asia', 'Europe'], KZ: ['Asia', 'Europe'], GE: ['Asia', 'Europe'], AZ: ['Asia', 'Europe'], AM: ['Asia', 'Europe'], CY: ['Europe', 'Asia'], EG: ['Africa', 'Asia'] };
+  const US_REGION = {}; // U.S. Census Bureau regions
+  Object.entries({ Northeast: 'CT ME MA NH RI VT NJ NY PA', Midwest: 'IL IN MI OH WI IA KS MN MO NE ND SD',
+    South: 'DE FL GA MD NC SC VA WV AL KY MS TN AR LA OK TX', West: 'AZ CO ID MT NV NM UT WY AK CA HI OR WA' })
+    .forEach(([reg, list]) => list.split(' ').forEach((st) => (US_REGION[st] = reg)));
+  // Flags that look alike are never shown together in a flag question.
+  const LOOKALIKE = [['TD', 'RO', 'AD', 'MD'], ['ID', 'MC', 'PL', 'SG'], ['NL', 'LU', 'PY', 'HR', 'RU', 'SI', 'SK', 'RS'], ['AU', 'NZ'],
+    ['IE', 'CI', 'IT', 'MX', 'IN', 'NE'], ['SN', 'ML', 'GN', 'CM', 'BJ', 'GH', 'BO'], ['CO', 'EC', 'VE'], ['NO', 'IS', 'DK', 'SE', 'FI', 'GB'],
+    ['SV', 'NI', 'HN', 'GT', 'AR', 'UY'], ['JO', 'PS', 'SD', 'KW', 'AE', 'EG', 'IQ', 'SY', 'YE'], ['BE', 'DE', 'AM', 'LT'], ['AT', 'LV', 'LB', 'PE', 'CA']];
+  const looksLike = (a, b) => LOOKALIKE.some((g) => g.includes(a) && g.includes(b));
+  function continentOf(c) {
+    if (M.key === 'us') return US_REGION[c];
+    const m = window.WORLD_META[c] || {};
+    if (m.region === 'Americas') return m.sub === 'South America' ? 'South America' : 'North America';
+    return m.region;
+  }
+  const extra = (c) => (window.EXTRAS[M.key] || {})[c] || [];
+  const mainLang = (c) => info(c)[2].split(/ and |, /)[0].replace(/ \(.*\)/, '');
+  // wrong answers come from far-away places, so a wrong answer can never secretly be right
+  const farAway = (r) => shuffle(regions.filter((c) => c !== r && continentOf(c) !== continentOf(r)));
+  function choices(r, value, isOK = () => true) {
+    const ans = value(r); const opts = [ans];
+    for (const c of farAway(r)) { const v = value(c); if (v && !opts.includes(v) && isOK(c, v)) opts.push(v); if (opts.length === 4) break; }
+    return { opts: shuffle(opts), ans };
+  }
+  // Nature: animals and type of land / climate (data/nature.js)
+  const LANDS = { D: ['desert', 'Hot, dry desert'], R: ['rainforest', 'Steamy rainforest'], S: ['savanna', 'Savanna grasslands'], M: ['mountains', 'Tall mountains'],
+    I: ['tropical islands & beaches', 'Tropical islands & beaches'], F: ['forests', 'Cool forests'], T: ['ice & tundra', 'Icy tundra & glaciers'],
+    P: ['grassy plains', 'Flat grassy plains'], W: ['wetlands', 'Wetlands & swamps'] };
+  const nature = (c) => { const [animal = '', lands = ''] = ((window.NATURE[M.key] || {})[c] || '').split('|'); return { animal, lands: lands.split('').filter((k) => LANDS[k]) }; };
+  function livesIn(range, r) {
+    const parts = range.split(' ');
+    if (parts.includes(r)) return true;
+    if (M.key === 'us') return parts.includes('US') || parts.includes('Americas');
+    return parts.includes((window.WORLD_META[r] || {}).region);
+  }
+  const Qs = {
+    animal(r) {
+      const ans = nature(r).animal; const opts = [ans];
+      for (const [a, range] of shuffle(window.NATURE.POOL)) { if (a !== ans && !ans.includes(a) && !livesIn(range, r)) opts.push(a); if (opts.length === 4) break; }
+      return { q: `Which animal lives in ${nameOf(r)}?`, opts: shuffle(opts), ans, explain: `The ${ans} lives in ${nameOf(r)}!` };
+    },
+    land(r) {
+      const n = nature(r);
+      const wrong = shuffle(Object.keys(LANDS).filter((k) => !n.lands.includes(k))).slice(0, 3);
+      if (!n.lands.length || wrong.length < 2) return Qs.animal(r);
+      const ans = LANDS[n.lands[0]][1];
+      const also = n.lands.slice(1).map((k) => LANDS[k][0]);
+      return { q: `What kind of land is ${nameOf(r)} known for?`, opts: shuffle([ans, ...wrong.map((k) => LANDS[k][1])]), ans,
+        explain: `${nameOf(r)} is known for its ${LANDS[n.lands[0]][0]}${also.length ? `, and it also has ${also.join(', ')}` : ''}.` };
+    },
+    continent(r) {
+      const ans = continentOf(r);
+      let all = M.key === 'us' ? ['Northeast', 'Midwest', 'South', 'West'] : ['Africa', 'Asia', 'Europe', 'North America', 'South America', 'Oceania'];
+      const two = M.key === 'world' && TWO_CONTINENTS[r];
+      if (two) all = all.filter((x) => x !== two[1]);
+      const opts = shuffle([ans, ...shuffle(all.filter((x) => x !== ans)).slice(0, 3)]);
+      return { q: M.key === 'us' ? `Which part of the U.S. is ${nameOf(r)} in?` : `Which continent is ${nameOf(r)} in?`, opts, ans,
+        explain: two ? `${nameOf(r)} is in ${two[0]} — and part of it is in ${two[1]} too!` : `${nameOf(r)} is in ${M.key === 'us' ? 'the ' : ''}${ans}.` };
+    },
+    flag(r) {
+      const opts = [r];
+      for (const c of farAway(r)) { if (!opts.some((o) => looksLike(o, c))) opts.push(c); if (opts.length === 4) break; }
+      return { q: `Which flag belongs to ${nameOf(r)}?`, opts: shuffle(opts), ans: r, kind: 'flag', explain: `Now you know the flag of ${nameOf(r)}!` };
+    },
+    bird(r) { // USA easy: the state bird is on the card
+      const c = choices(r, (s) => info(s)[5].split(' (')[0]);
+      return { q: `What is the state bird of ${nameOf(r)}?`, ...c, explain: `The state bird of ${nameOf(r)} is the ${c.ans.toLowerCase()}.` };
+    },
+    capital(r) {
+      const c = choices(r, shortCap);
+      return { q: `What is the capital of ${nameOf(r)}?`, ...c, explain: `The capital of ${nameOf(r)} is ${c.ans}.` };
+    },
+    language(r) {
+      const own = (info(r)[2] + ', ' + info(r)[3]).toLowerCase();
+      const c = choices(r, mainLang, (_, v) => !own.includes(v.toLowerCase()));
+      return { q: `What language do most people speak in ${nameOf(r)}?`, ...c, explain: `People in ${nameOf(r)} speak ${info(r)[2]}.` };
+    },
+    nickname(r) {
+      const c = choices(r, (s) => info(s)[2]);
+      return { q: `What is the nickname of ${nameOf(r)}?`, ...c, explain: `${nameOf(r)} is “${c.ans}.”` };
+    },
+    place(r) {
+      const c = choices(r, (s) => extra(s)[0]);
+      return { q: `Which famous place is in ${nameOf(r)}?`, ...c, explain: `${c.ans} is in ${nameOf(r)}.` };
+    },
+    tradition(r) {
+      const c = choices(r, (s) => extra(s)[1]);
+      return { q: `Which of these is ${nameOf(r)} famous for?`, ...c, explain: `${nameOf(r)} is famous for ${c.ans}.` };
+    }
+  };
+  function buildQuestions(enemy, clicked) {
+    const us = M.key === 'us';
+    // each level has three kinds of question; every battle uses the next two in line, so they take turns
+    const pool = { easy: ['continent', us ? 'bird' : 'flag', 'animal'], medium: ['capital', us ? 'nickname' : 'language', 'land'],
+      hard: ['place', 'tradition', Math.random() < 0.5 ? 'animal' : 'land'] }[settings.level] || ['capital', 'continent', 'animal'];
+    const turn = S.qTurn || 0; S.qTurn = turn + 2; save();
+    return [pool[turn % 3], pool[(turn + 1) % 3]].map((k) => Qs[k](clicked));
+  }
+
+  function versusHTML(enemy) {
+    const mine = regionsOf(S.player).length, theirs = regionsOf(enemy).length;
+    return `<div class="versus">
+      <div class="side"><img src="${M.flag(S.player)}" alt=""><div>You: ${esc(nameOf(S.player))}</div><div class="small">${mine} ${mine === 1 ? M.unit : M.units}</div></div>
+      <div class="vs">VS</div>
+      <div class="side"><img src="${M.flag(enemy)}" alt=""><div>${esc(nameOf(enemy))}</div><div class="small">${theirs} ${theirs === 1 ? M.unit : M.units}</div></div></div>`;
+  }
+
+  /* ---------- the fraction wheel ---------- */
+  const gcd = (a, b) => (b ? gcd(b, a % b) : a);
+  const frac = (m, n) => { const g = gcd(m, n); return `${m / g}/${n / g}`; };
+  const enemyWheelColor = (e) => d3.color(colorAI[e] || '#9aa5b1').darker(1.1).formatHex();
+  function wheelSVG(mine, total, enemy) {
+    const R = 100, c = 110, me = S.color, them = enemyWheelColor(enemy);
+    let out = '';
+    for (let i = 0; i < total; i++) {
+      const a0 = i / total * 2 * Math.PI, a1 = (i + 1) / total * 2 * Math.PI; // clockwise from the top
+      const pt = (a, r) => [(c + r * Math.sin(a)).toFixed(2), (c - r * Math.cos(a)).toFixed(2)];
+      const [x0, y0] = pt(a0, R), [x1, y1] = pt(a1, R);
+      out += `<path d="M${c},${c} L${x0},${y0} A${R},${R} 0 0 1 ${x1},${y1} Z" fill="${i < mine ? me : them}" stroke="#fff" stroke-width="3"/>`;
+      const [tx, ty] = pt((a0 + a1) / 2, R * 0.64);
+      out += `<text x="${tx}" y="${ty}" text-anchor="middle" dominant-baseline="central" class="slice-label">${i < mine ? '★' : ''}1/${total}</text>`;
+    }
+    out += `<circle cx="${c}" cy="${c}" r="14" fill="#fff" stroke="#1d2a3a" stroke-width="3"/>`;
+    return `<svg viewBox="0 0 220 220" class="wheel" id="wheel" role="img" aria-label="Wheel: you have ${frac(mine, total)}">${out}</svg>`;
+  }
+  function drawWheel(B, pop) {
+    const box = $('#wheelBox');
+    box.innerHTML = `<div class="wheel-wrap"><div class="pointer"></div>${wheelSVG(B.mine, B.total, B.enemy)}</div>
+      <div class="wheel-key"><span><i style="background:${S.color}"></i>★ You: <b>${frac(B.mine, B.total)}</b></span>
+      <span><i style="background:${enemyWheelColor(B.enemy)}"></i>${esc(nameOf(B.enemy))}: <b>${frac(B.total - B.mine, B.total)}</b></span></div>`;
+    if (pop) $('#wheel').animate([{ transform: 'scale(.85)' }, { transform: 'scale(1.06)' }, { transform: 'scale(1)' }], { duration: 450, easing: 'ease-out' });
+  }
+
+  function startBattle(enemy, clicked) {
+    const B = { enemy, mine: 1, total: 2 };
+    openModal(`<h3 class="mtitle">⚔️ Battle!</h3>${versusHTML(enemy)}<div id="wheelBox"></div><div id="stage"></div>`, { noClose: true });
+    card.insertAdjacentHTML('afterbegin', '<span data-lock></span>');
+    drawWheel(B);
+    if (settings.level === 'off') { spinStage(B); return; }
+    const qs = buildQuestions(enemy, clicked);
+    askQ(B, qs, 0);
+  }
+
+  function askQ(B, qs, i) {
+    const Q = qs[i];
+    $('#stage').innerHTML = `<p class="center small">🧠 <b>Question ${i + 1} of 2</b> — ${i === 0 ? 'right answers make your slice of the wheel bigger! (Hint: the answers are on the card you just read.)' : 'one more chance to grow your slice!'}</p>
+      <div class="quiz-q">${esc(Q.q)}</div>
+      <div class="quiz-opts">${Q.opts.map((o, k) => `<button data-k="${k}">${Q.kind === 'flag' ? `<img src="${M.flag(o)}" alt="A flag">` : esc(o)}</button>`).join('')}</div>
+      <div id="qres"></div>`;
+    const btns = card.querySelectorAll('.quiz-opts button');
+    btns.forEach((b) => b.onclick = () => {
+      const right = Q.opts[+b.dataset.k] === Q.ans;
+      btns.forEach((x) => { x.disabled = true; if (Q.opts[+x.dataset.k] === Q.ans) x.classList.add('right'); });
+      if (!right) b.classList.add('wrong');
+      right ? sfx.right() : sfx.wrong();
+      if (i === 0) { B.mine = right ? 3 : 1; B.total = 4; } else { B.mine = B.mine * 2 + (right ? 1 : -1); B.total = 8; }
+      drawWheel(B, true);
+      const fact = Q.explain;
+      $('#qres').innerHTML = `<div class="odds">${right ? `✅ Correct! ${esc(fact)}<br>Your slice grows to <b>${frac(B.mine, B.total)}</b> of the wheel!`
+        : `❌ Not quite. ${esc(fact)}<br>${esc(nameOf(B.enemy))}’s slice grows to <b>${frac(B.total - B.mine, B.total)}</b>.`}</div>
+        <div class="btn-row"><button class="btn primary" id="qNext">${i === 0 ? 'Next question →' : 'Get ready to spin! 🎡'}</button></div>`;
+      $('#qNext').onclick = () => (i === 0 ? askQ(B, qs, 1) : spinStage(B));
+    });
+  }
+
+  function spinStage(B) {
+    $('#stage').innerHTML = `<p class="center">You have <b>${frac(B.mine, B.total)}</b> of the wheel. ${esc(nameOf(B.enemy))} has <b>${frac(B.total - B.mine, B.total)}</b>.</p>
+      <div id="flipOut"><div class="btn-row"><button class="btn gold" id="spinBtn">🎡 SPIN!</button></div></div>`;
+    $('#spinBtn').onclick = () => {
+      $('#spinBtn').disabled = true;
+      const win = Math.random() < B.mine / B.total;
+      // land somewhere inside one of the winner's slices (not right on a line)
+      const idx = win ? (Math.random() * B.mine) | 0 : B.mine + ((Math.random() * (B.total - B.mine)) | 0);
+      const a = (idx + 0.2 + Math.random() * 0.6) * 360 / B.total;
+      const rot = 360 * 6 + (360 - a);
+      sfx.spin();
+      $('#wheel').animate([{ transform: 'rotate(0deg)' }, { transform: `rotate(${rot}deg)` }], { duration: 3400, easing: 'cubic-bezier(.12,.65,.2,1)', fill: 'forwards' });
+      setTimeout(() => resolveBattle(B.enemy, win), 3600);
+    };
+  }
+
+  function resolveBattle(enemy, win) {
+    S.battles++;
+    const out = $('#flipOut');
+    if (win) {
+      const taken = regionsOf(enemy);
+      for (const r of taken) { S.own[r] = S.player; if (!S.conquered.includes(r)) S.conquered.push(r); }
+      S.wins++; S.log.push(['win', enemy, taken.length]);
+      save(); sfx.win(); confetti(80);
+      const done = regionsOf(S.player).length === regions.length;
+      out.innerHTML = `<div class="result win">🎉 The wheel landed on YOU! You win!</div>
+        <p class="center">You take over ${taken.length > 1 ? `all ${taken.length} ${M.units} of ${esc(nameOf(enemy))}’s empire` : esc(nameOf(enemy))}!</p>
+        <div class="btn-row"><button class="btn go" id="resOk">${done ? '🏆 See your victory!' : 'Keep conquering! ⚔️'}</button></div>`;
+      $('#resOk').onclick = () => {
+        closeModal(); refresh(); map.pulse(taken);
+        if (done) { S.phase = 'won'; save(); showWin(); }
+        else banner(`${regionsOf(S.player).length} / ${regions.length} ${M.units} are yours!`, 3500);
+      };
+    } else {
+      const lost = regionsOf(S.player);
+      const old = S.player;
+      for (const r of lost) S.own[r] = enemy;
+      S.lives++; S.lastBeatBy = enemy; S.log.push(['lose', enemy, lost.length]);
+      S.player = null; save(); sfx.lose();
+      const left = [...empires().keys()].filter((e) => e !== enemy);
+      out.innerHTML = `<div class="result lose">The wheel landed on ${esc(nameOf(enemy))}… they win!</div>
+        <p class="center">${esc(nameOf(enemy))} takes over ${lost.length > 1 ? `your whole empire (${lost.length} ${M.units})` : esc(nameOf(old))}.</p>
+        <div class="btn-row"><button class="btn gold" id="resOk">${left.length ? `Choose a new ${M.unit} →` : 'See results'}</button></div>`;
+      $('#resOk').onclick = () => {
+        closeModal(); refresh(); map.pulse(lost);
+        if (!left.length) { S.phase = 'lost'; save(); showGameOver(); }
+        else { S.phase = 'respawn'; save(); refresh(); respawnPrompt(); }
+      };
+    }
+  }
+
+  /* ================= RESPAWN ================= */
+  function respawnPrompt() {
+    banner(`Tap a ${M.unit} to respawn as it`);
+    const em = [...empires().entries()].filter(([e]) => e !== S.lastBeatBy).sort((a, b) => nameOf(a[0]).localeCompare(nameOf(b[0])));
+    openModal(`<h3 class="mtitle">Respawn!</h3>
+      <p class="center">Choose who to play as next. You can only pick ${M.units} that still exist — if one was taken over, you get its whole empire.</p>
+      <div class="respawn-list">${em.map(([e, n]) => `<button data-e="${e}"><img src="${M.flag(e)}" alt="">${esc(nameOf(e))}${n > 1 ? ` (${n})` : ''}</button>`).join('')}</div>
+      <p class="small center">Or close this and tap one on the map to learn about it first.</p>`, { wide: true });
+    card.querySelectorAll('.respawn-list button').forEach((b) => b.onclick = () => { closeModal(); onRegionClick(b.dataset.e); });
+  }
+  function doRespawn(e) {
+    S.player = e; S.phase = 'play'; S.lastBeatBy = null; save();
+    closeModal(); refresh(); map.pulse(regionsOf(e)); sfx.win();
+    banner(`You are now ${empireLabel(e)}! Keep going!`, 4000);
+  }
+
+  /* ================= END SCREENS ================= */
+  function statsHTML() {
+    return `<div class="pp-stats"><div>⚔️ ${S.battles} battles</div><div>🏆 ${S.wins} wins</div><div>❤️ ${S.lives} lives used</div><div>🗺️ ${S.visited.length} / ${regions.length} visited</div></div>`;
+  }
+  function showWin() {
+    banner(null); confetti(220); sfx.win();
+    openModal(`<div style="text-align:center;font-size:64px">🏆</div><h3 class="mtitle">You conquered ${M.key === 'us' ? 'the USA' : 'the WORLD'}!</h3>
+      <p class="center">All ${regions.length} ${M.units} belong to ${esc(nameOf(S.player))}. Amazing!</p>${statsHTML()}
+      <div class="btn-row" style="margin-top:16px"><button class="btn ghost" id="wPass">🛂 Passport</button><button class="btn go" id="wAgain">Play again</button></div>${supportHTML()}`, { wide: true });
+    $('#wAgain').onclick = () => { closeModal(); store.del(SAVE_KEY(M.key)); showTitle(); };
+    $('#wPass').onclick = () => showPassport();
+  }
+  function showGameOver() {
+    banner(null);
+    openModal(`<div style="text-align:center;font-size:64px">🏳️</div><h3 class="mtitle">Game over</h3>
+      <p class="center">There are no ${M.units} left to respawn as — ${esc(nameOf(S.lastBeatBy))} rules everything!</p>${statsHTML()}
+      <div class="btn-row" style="margin-top:16px"><button class="btn go" id="gAgain">Try again</button></div>`, { wide: true });
+    $('#gAgain').onclick = () => { closeModal(); store.del(SAVE_KEY(M.key)); startMode(M.key, null); };
+  }
+
+  /* ================= PASSPORT ================= */
+  function showPassport() {
+    const v = new Set(S.visited), c = new Set(S.conquered);
+    openModal(`<h3 class="mtitle">🛂 My Passport</h3>
+      <p class="center small">Every ${M.unit} you tap gets a flag in your passport. ${M.units[0].toUpperCase() + M.units.slice(1)} you’ve conquered get a stamp!</p>
+      ${statsHTML()}
+      <div class="pp-grid">${regions.map((r) => `<button class="pp ${v.has(r) ? '' : 'locked'}" data-r="${r}" ${v.has(r) ? '' : 'disabled'}><img src="${M.flag(r)}" alt="" loading="lazy">${c.has(r) ? '<span class="stamp">CONQUERED</span>' : ''}<div>${v.has(r) ? esc(nameOf(r)) : '???'}</div></button>`).join('')}</div>`, { wide: true });
+    card.querySelectorAll('.pp:not(.locked)').forEach((b) => b.onclick = () => { closeModal(); map.flyTo(b.dataset.r); setTimeout(() => onRegionClick(b.dataset.r), 700); });
+  }
+
+  /* ================= INSTALL AS AN APP ================= */
+  let installPrompt = null;
+  const isStandalone = () => window.matchMedia('(display-mode: standalone)').matches || window.navigator.standalone === true;
+  const isIOS = /iphone|ipad|ipod/i.test(navigator.userAgent) || (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
+  const isMacSafari = !isIOS && /Macintosh/.test(navigator.userAgent) && /Safari/.test(navigator.userAgent) && !/Chrome|Chromium|Edg|Firefox/.test(navigator.userAgent);
+  const canInstall = () => !isStandalone() && (installPrompt || isIOS || isMacSafari);
+  function updateInstallBtn() { $('#installBtn').hidden = !canInstall() || $('#title').hidden; }
+  window.addEventListener('beforeinstallprompt', (e) => { e.preventDefault(); installPrompt = e; updateInstallBtn(); });
+  window.addEventListener('appinstalled', () => { installPrompt = null; updateInstallBtn(); });
+  async function doInstall() {
+    sfx.click();
+    if (installPrompt) { installPrompt.prompt(); try { await installPrompt.userChoice; } catch (e) { /* ignore */ } installPrompt = null; updateInstallBtn(); return; }
+    const steps = isIOS
+      ? '<ol><li>Tap the <b>Share</b> button <span style="font-size:20px">⬆️</span> (a square with an arrow, at the bottom or top of Safari).</li><li>Scroll down and tap <b>Add to Home Screen</b>.</li><li>Tap <b>Add</b>. The game appears on your home screen like an app!</li></ol>'
+      : '<ol><li>In Safari’s menu bar, click <b>File</b>.</li><li>Click <b>Add to Dock</b>.</li><li>Click <b>Add</b>. The game opens from your Dock like an app!</li></ol>';
+    openModal(`<div style="text-align:center"><img src="icons/icon-192.png" alt="" style="width:96px;border-radius:22px;box-shadow:var(--shadow)"></div>
+      <h3 class="mtitle">Get the app</h3>${steps}<p class="small center">It’s free, works offline, and keeps your saved games.</p>
+      <div class="btn-row"><button class="btn gold" data-close>Got it!</button></div>`);
+  }
+  $('#installBtn').addEventListener('click', doInstall);
+
+  /* ✈️ Airplane-mode badge: shows when every game file is saved on this device */
+  let offlineReady = false, offlineTimer = null;
+  async function offlineStatus() {
+    const O = self.LYMAN_OFFLINE;
+    if (!O || !('caches' in window) || !('serviceWorker' in navigator) || location.protocol === 'file:') return null;
+    const have = new Set((await (await caches.open(O.version)).keys()).map((r) => r.url));
+    const n = O.files.filter((f) => have.has(new URL(f, location.href).href)).length;
+    return { n, total: O.files.length };
+  }
+  async function updateOfflineBadge() {
+    const b = $('#offlineBadge'); let st = null;
+    try { st = await offlineStatus(); } catch (e) { st = null; }
+    if (!st) { b.hidden = true; return; }
+    offlineReady = st.n >= st.total;
+    b.classList.toggle('ready', offlineReady);
+    b.textContent = offlineReady ? '✈️ Ready for airplane mode' : `⏳ Saving for airplane mode… ${Math.floor(st.n / st.total * 100)}%`;
+    b.hidden = $('#title').hidden;
+    if (!offlineReady && navigator.onLine && navigator.serviceWorker.controller && !offlineTimer) navigator.serviceWorker.controller.postMessage('save-all');
+    clearTimeout(offlineTimer); offlineTimer = offlineReady ? null : setTimeout(() => { offlineTimer = null; updateOfflineBadge(); }, 1500);
+  }
+  if ('serviceWorker' in navigator && location.protocol !== 'file:') {
+    window.addEventListener('load', () => navigator.serviceWorker.register('sw.js').catch(() => { /* offline mode unavailable */ }).finally(updateOfflineBadge));
+  }
+
+  /* ================= BOOT ================= */
+  if ('speechSynthesis' in window) speechSynthesis.getVoices();
+  showTitle();
+})();
