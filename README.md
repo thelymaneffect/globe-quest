@@ -29,10 +29,10 @@ When you update the game later, change `VERSION` in `tools/make-offline-list.cjs
 Double-click `index.html` — it works offline in any modern browser.
 
 ## Put it online for free (GitHub Pages)
-1. Create a new **public** repository on GitHub (for example `world-domination`).
+1. Create a new **public** repository on GitHub (for example `globe-quest`).
 2. Upload everything in this folder to it (drag and drop on the GitHub website works).
 3. In the repository, go to **Settings → Pages**, set **Source** to “Deploy from a branch”, branch `main`, folder `/ (root)`, and save.
-4. After a minute or two the game is live at `https://<your-username>.github.io/world-domination/`.
+4. After a minute or two the game is live at `https://<your-username>.github.io/globe-quest/`.
 
 GitHub has no limit on the number of public repositories, and each one can have its own free Pages site.
 
