@@ -87,6 +87,11 @@
       this.colorOf = () => COL.neutral; this.empireOf = () => null; this.highlight = new Set();
       this.flash = new Map(); this.hover = null; this.onClick = null; this.onHover = null; this.onZoom = null;
       this.detail = null; // places/rivers etc, loaded lazily
+      // Learning guides drawn on top of the map: hemispheres (world) or U.S. regions (USA). Set by game.js.
+      this.guides = null;
+      const line = (pts) => ({ type: 'LineString', coordinates: pts });
+      this.equator = line(d3.range(-180, 181, 5).map((x) => [x, 0]));
+      this.primeMeridian = line(d3.range(-90, 91, 2).map((y) => [0, y]));
       this.zoom = d3.zoom().scaleExtent([1, 60]).clickDistance(6)
         .on('start', (e) => { if (e.sourceEvent) this._moving = true; })
         .on('zoom', (e) => this._zoomed(e))
@@ -111,7 +116,7 @@
       this.sphere = { type: 'Sphere' };
       this.graticule = d3.geoGraticule10();
       this.empireMesh = null;
-      this._sortedForLabels = null; this._lakesBySize = null; // forget the previous mode's lists
+      this._sortedForLabels = null; this._lakesBySize = null; this._regionMesh = null; // forget the previous mode's lists
       this.resize();
       this.resetView(false);
     }
@@ -355,7 +360,7 @@
 
     draw() {
       if (this._raf) return;
-      this._raf = requestAnimationFrame(() => { this._raf = null; this._render(); this._drawHere(this.ctx); this.onRender && this.onRender(); });
+      this._raf = requestAnimationFrame(() => { this._raf = null; this._render(); this._drawGuideLabels(this.ctx); this._drawHere(this.ctx); this.onRender && this.onRender(); });
     }
 
     _p2d(obj) {
@@ -453,6 +458,24 @@
         const maxRank = Math.min(10, 1.5 + eff * 1.3);
         ctx.strokeStyle = COL.river; ctx.lineWidth = lw * (eff > 5 ? 1.4 : 1);
         shapes(this.detail.rivers.features.filter((r) => r.properties.r <= maxRank), 'stroke');
+      }
+      // learning guides (lines)
+      const G = this.guides;
+      if (G && G.type === 'hemi') {
+        const dash = (on, off) => ctx.setLineDash([on * lw, off * lw]);
+        ctx.lineWidth = lw * 4.5; ctx.strokeStyle = 'rgba(255,255,255,.75)'; ctx.setLineDash([]); shapes([this.equator, this.primeMeridian], 'stroke');
+        ctx.lineWidth = lw * 2.4; dash(10, 6);
+        ctx.strokeStyle = '#e2483d'; shapes([this.equator], 'stroke');
+        ctx.strokeStyle = '#2b6cb0'; shapes([this.primeMeridian], 'stroke');
+        ctx.setLineDash([]);
+      } else if (G && G.type === 'regions') {
+        if (!this._regionMesh) {
+          const obj = this.topo.objects[this.objName];
+          this._regionMesh = topojson.mesh(this.topo, obj, (a, b) => a !== b && G.regionOf(a.properties.o) !== G.regionOf(b.properties.o));
+          this._regionMesh.mid = liteLines(this._regionMesh, 0.45);
+        }
+        ctx.lineWidth = lw * 6; ctx.strokeStyle = 'rgba(255,255,255,.85)'; shapes([this._regionMesh], 'stroke');
+        ctx.lineWidth = lw * 2.6; ctx.strokeStyle = '#1d2a3a'; ctx.setLineDash([9 * lw, 5 * lw]); shapes([this._regionMesh], 'stroke'); ctx.setLineDash([]);
       }
       // --- screen-space overlays ---
       ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
@@ -634,6 +657,34 @@
     }
 
     _isTiny(f, scale) { return f.o && f.id === f.o && f.area * scale * scale < 5; }
+
+    // words for the learning guides, always the same size on screen, with a white outline so they read over any color
+    _drawGuideLabels(ctx) {
+      const G = this.guides; if (!G || !this.features || (this.view !== '2d' && this._moving)) return;
+      ctx.setTransform(this.dpr, 0, 0, this.dpr, 0, 0);
+      const big = this.effZoom() >= 2.5;
+      const items = G.type === 'hemi' ? [
+        { ll: [-150, 2.5], t: '↑ NORTHERN HEMISPHERE', c: '#1d2a3a', base: 'bottom' }, { ll: [-150, -2.5], t: '↓ SOUTHERN HEMISPHERE', c: '#1d2a3a', base: 'top' },
+        { ll: [62, 2.5], t: '↑ NORTHERN HEMISPHERE', c: '#1d2a3a', base: 'bottom' }, { ll: [62, -2.5], t: '↓ SOUTHERN HEMISPHERE', c: '#1d2a3a', base: 'top' },
+        { ll: [-112, 0], t: 'EQUATOR', c: '#c0392b', box: true },
+        { ll: [-2.5, -50], t: '← WESTERN HEMISPHERE', c: '#1d2a3a', align: 'right' }, { ll: [2.5, -50], t: 'EASTERN HEMISPHERE →', c: '#1d2a3a', align: 'left' },
+        { ll: [-2.5, 71], t: '← WESTERN HEMISPHERE', c: '#1d2a3a', align: 'right' }, { ll: [2.5, 71], t: 'EASTERN HEMISPHERE →', c: '#1d2a3a', align: 'left' },
+        { ll: [0, -28], t: 'PRIME MERIDIAN', c: '#2b6cb0', box: true, rot: true }
+      ] : (G.labels || []).map((l) => ({ ll: l.ll, t: l.t, c: l.c, size: big ? 22 : 18 }));
+      for (const it of items) {
+        const p = this._toScreen(it.ll); if (!p) continue;
+        const size = it.size || (big ? 15 : 12);
+        ctx.save(); ctx.translate(p[0], p[1]); if (it.rot) ctx.rotate(-Math.PI / 2);
+        ctx.font = `700 ${size}px Fredoka, sans-serif`; ctx.textAlign = it.align || 'center'; ctx.textBaseline = it.base || 'middle';
+        if (it.box) {
+          const w = ctx.measureText(it.t).width + 12, h = size + 8;
+          ctx.fillStyle = 'rgba(255,255,255,.92)'; ctx.strokeStyle = it.c; ctx.lineWidth = 2;
+          ctx.beginPath(); ctx.roundRect ? ctx.roundRect(-w / 2, -h / 2, w, h, 7) : ctx.rect(-w / 2, -h / 2, w, h); ctx.fill(); ctx.stroke();
+        } else { ctx.lineJoin = 'round'; ctx.lineWidth = 4; ctx.strokeStyle = 'rgba(255,255,255,.95)'; ctx.strokeText(it.t, 0, 0); }
+        ctx.fillStyle = it.c; ctx.fillText(it.t, 0, 0);
+        ctx.restore();
+      }
+    }
 
     _drawHere(ctx) {
       if (!this.here) return;

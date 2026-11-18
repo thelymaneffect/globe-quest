@@ -33,7 +33,7 @@
   };
   const DETAIL_SCRIPTS = ['data/places.js', 'data/cities.js', 'data/rivers.js', 'data/lakes.js', 'data/features.js'];
 
-  let settings = Object.assign({ sound: true, view: '2d', legendOpen: window.innerWidth > 900, stakes: 'none' }, store.get(SET_KEY) || {});
+  let settings = Object.assign({ sound: true, view: '2d', legendOpen: window.innerWidth > 900, stakes: 'none', guides: true }, store.get(SET_KEY) || {});
   if (!Array.isArray(settings.cats)) settings.cats = settings.level === 'off' || settings.boost === false ? [] : ['capitals', 'orientation', 'landmarks'];
   if (settings.catsV !== 2) { if (settings.cats.length && !settings.cats.includes('orientation')) settings.cats.splice(1, 0, 'orientation'); settings.catsV = 2; }
   const saveSettings = () => store.set(SET_KEY, settings);
@@ -139,7 +139,9 @@
     return S.empColor[e];
   }
   const empireSize = (e) => { let n = 0; for (const r of regions) if (S.own[r] === e) n++; return n; };
+  const REGION_FILL = { Northeast: ['#a9c8ec', '#94b9e4'], Midwest: ['#f5d98c', '#efcd73'], South: ['#f4b49a', '#efa184'], West: ['#b4dca6', '#a2d293'] };
   const colorOf = (r) => {
+    if (S && S.phase === 'explore' && M.key === 'us' && settings.guides && US_REGION[r]) return REGION_FILL[US_REGION[r]][r.charCodeAt(1) % 2];
     const e = S && S.own ? S.own[r] : r;
     if (S && S.player && e === S.player) return S.color;
     if (S && S.own && empireSize(e) > 1) return empireColor(e);
@@ -318,8 +320,8 @@
     };
   }
   async function showCredits() {
-    try { await loadScript('data/pictures.js'); } catch (e) { /* offline and not saved yet */ }
-    const list = (window.PIC_CREDITS || []).slice().sort((a, b) => a[0].localeCompare(b[0]));
+    for (const f of ['data/pictures.js', 'data/place-pics.js', 'data/park-pics.js']) { try { await loadScript(f); } catch (e) { /* offline and not saved yet */ } }
+    const list = [...(window.PIC_CREDITS || []), ...(window.PLACE_CREDITS || []), ...(window.PARK_CREDITS || []).map((c) => [c[0] + ' National Park', ...c.slice(1)])].sort((a, b) => a[0].localeCompare(b[0]));
     openModal(`<h3 class="mtitle">📷 Photo credits</h3>
       <p class="center small">Thank you to the photographers who share their pictures on Wikimedia Commons. Tap a name to see the original photo and its license.</p>
       <ul class="credits">${list.map(([name, , artist, lic, url]) => `<li><b>${esc(name)}</b>: photo by ${esc(artist)} (${esc(lic)}) ${url ? `<a href="${esc(url)}" target="_blank" rel="noopener">source</a>` : ''}</li>`).join('')}</ul>
@@ -437,12 +439,12 @@
   function placeKey(c) { return (M.key === 'us' ? 'us:' : 'w:') + c; }
   function updatePins() {
     const layer = $('#pins');
-    if (!exploring() || !window.PLACE_INFO) { layer.hidden = true; return; }
+    if (!map) return;
     layer.hidden = false;
-    const z = map.effZoom(), show = z >= (M.key === 'us' ? 4.5 : 1.8);
+    const z = map.effZoom(), show = exploring() && !!window.PLACE_INFO && z >= (M.key === 'us' ? 4.5 : 1.8);
     const big = z >= (M.key === 'us' ? 9 : 5);
     const placed = [];
-    for (const c of regions) {
+    if (show) for (const c of regions) {
       const k = placeKey(c), P = window.PLACE_INFO[k]; if (!P) continue;
       let el = pinEls.get(k);
       const xy = show ? map._toScreen([P[0], P[1]]) : null;
@@ -462,8 +464,43 @@
       el.hidden = false; el.classList.toggle('big', big);
       el.style.transform = `translate(${Math.round(xy[0])}px, ${Math.round(xy[1])}px)`;
     }
+    updateParks(z, placed);
   }
-  function clearPins() { pinEls.forEach((el) => el.remove()); pinEls.clear(); $('#pins').hidden = true; }
+  /* 🌲 U.S. national parks: small tree markers (in games and while exploring). Tap one to learn about it. */
+  const parkEls = new Map();
+  const US_NAMES = Object.fromEntries('AL Alabama|AK Alaska|AZ Arizona|AR Arkansas|CA California|CO Colorado|CT Connecticut|DE Delaware|FL Florida|GA Georgia|HI Hawaii|ID Idaho|IL Illinois|IN Indiana|IA Iowa|KS Kansas|KY Kentucky|LA Louisiana|ME Maine|MD Maryland|MA Massachusetts|MI Michigan|MN Minnesota|MS Mississippi|MO Missouri|MT Montana|NE Nebraska|NV Nevada|NH New Hampshire|NJ New Jersey|NM New Mexico|NY New York|NC North Carolina|ND North Dakota|OH Ohio|OK Oklahoma|OR Oregon|PA Pennsylvania|RI Rhode Island|SC South Carolina|SD South Dakota|TN Tennessee|TX Texas|UT Utah|VT Vermont|VA Virginia|WA Washington|WV West Virginia|WI Wisconsin|WY Wyoming|AS American Samoa|VI the U.S. Virgin Islands'.split('|').map((x) => [x.slice(0, 2), x.slice(3)]));
+  function updateParks(z, placed) {
+    const P = window.PARKS;
+    const show = P && settings.parks !== false && z >= (M.key === 'us' ? 3.5 : 3);
+    const named = z >= (M.key === 'us' ? 7 : 6);
+    P && P.forEach((pk, i) => {
+      let el = parkEls.get(i);
+      const xy = show ? map._toScreen([pk[2], pk[3]]) : null;
+      if (!xy || xy[0] < -40 || xy[1] < -40 || xy[0] > map.w + 40 || xy[1] > map.h + 40) { if (el) el.hidden = true; return; }
+      const wBox = named ? 110 : 26, box = [xy[0] - 13, xy[1] - 13, xy[0] - 13 + wBox, xy[1] + 13];
+      if (placed.some((b) => box[0] < b[2] && box[2] > b[0] && box[1] < b[3] && box[3] > b[1])) { if (el) el.hidden = true; return; }
+      placed.push(box);
+      if (!el) {
+        el = document.createElement('button'); el.className = 'park'; el.setAttribute('aria-label', pk[0] + ' National Park');
+        el.innerHTML = `<span class="park-ico">🌲</span><span class="park-name">${esc(pk[0])}</span>`;
+        el.onclick = (e) => { e.stopPropagation(); showPark(pk); };
+        $('#pins').appendChild(el); parkEls.set(i, el);
+      }
+      el.hidden = false; el.classList.toggle('named', named);
+      el.style.transform = `translate(${Math.round(xy[0])}px, ${Math.round(xy[1])}px)`;
+    });
+  }
+  function showPark(pk) {
+    const f = window.PARK_PICS && window.PARK_PICS[pk[0]];
+    sfx.click();
+    openModal(`${f ? `<img class="place-photo" src="${f}" alt="${esc(pk[0])} National Park">` : ''}
+      <h3 class="mtitle">🌲 ${esc(pk[0])} National Park</h3>
+      <p class="center small" style="margin-top:-4px">📍 In ${esc(US_NAMES[pk[1]] || pk[1])}</p>
+      <p class="place-about">${esc(pk[4])}</p>
+      <p class="center small">National parks protect special nature so everyone can enjoy it, now and in the future. The United States has 63 of them.</p>
+      <div class="btn-row"><button class="btn gold" data-close>${exploring() ? 'Keep exploring' : 'Back to the map'}</button></div>`);
+  }
+  function clearPins() { pinEls.forEach((el) => el.remove()); pinEls.clear(); parkEls.forEach((el) => el.remove()); parkEls.clear(); $('#pins').hidden = true; }
   function showPlace(c) {
     const k = placeKey(c), P = window.PLACE_INFO[k], f = window.PLACE_PICS && window.PLACE_PICS[k];
     sfx.click();
@@ -538,6 +575,21 @@
     if (map) { const r = $('#map').getBoundingClientRect(); if (r.width && (Math.abs(r.height - map.h) > 1 || Math.abs(r.width - map.w) > 1)) map.resize(); }
   }
 
+  /* Learning guides on the map: hemispheres (world) and U.S. regions (USA), so kids SEE what the cards and questions talk about */
+  const REGION_LABELS = [{ t: 'NORTHEAST', ll: [-74.6, 43.4], c: '#2b6cb0' }, { t: 'MIDWEST', ll: [-93.5, 43.6], c: '#9a6400' }, { t: 'SOUTH', ll: [-89.5, 33.2], c: '#b03a1e' },
+    { t: 'WEST', ll: [-114.5, 40.8], c: '#2f7a3a' }, { t: 'WEST', ll: [-152, 64.5], c: '#2f7a3a' }, { t: 'WEST', ll: [-157.6, 21.9], c: '#2f7a3a' }];
+  function setGuides() {
+    if (!map || !M) return;
+    map.guides = !settings.guides ? null : M.key === 'us' ? { type: 'regions', regionOf: (o) => US_REGION[o], labels: REGION_LABELS } : { type: 'hemi' };
+    const b = $('#guideBtn');
+    b.innerHTML = `${M.key === 'us' ? '🗺️ Regions' : '🌐 Hemispheres'}<b>${settings.guides ? 'ON' : 'OFF'}</b>`;
+    b.classList.toggle('on', !!settings.guides); b.setAttribute('aria-pressed', !!settings.guides);
+    b.title = M.key === 'us' ? 'Show the 4 regions of the United States' : 'Show the equator, the Prime Meridian, and the 4 hemispheres';
+    if (S) renderLegend();
+    map.draw();
+  }
+  $('#guideBtn').addEventListener('click', () => { settings.guides = !settings.guides; saveSettings(); sfx.click(); setGuides(); });
+
   async function startMode(key, saved, explore = false) {
     M = MODES[key]; clearPins();
     $('#explore').hidden = true; $('#title').hidden = true; $('#hud').hidden = false; $('#mapwrap').hidden = false; $('#installBtn').hidden = true; $('#offlineBadge').hidden = true;
@@ -582,7 +634,8 @@
     // make sure save matches the current map
     for (const r of regions) if (!S.own[r]) S.own[r] = r;
     save();
-    buildSearch(); refresh(); syncHud();
+    setGuides(); buildSearch(); refresh(); syncHud();
+    loadAll(['data/parks.js', 'data/park-pics.js']).then(() => map.draw()).catch(() => { /* parks are optional */ });
     banner(null);
     loadAll(DETAIL_SCRIPTS).then(() => {
       let rivers = window.RIVERS, features = window.GEOFEATURES;
@@ -693,6 +746,9 @@
     for (const [e, n] of top) html += `<div class="row"><span class="sw" style="background:${empireColor(e)}"></span>${esc(nameOf(e))}’s empire (${n})</div>`;
     html += `<div class="row"><span class="sw" style="background:repeating-linear-gradient(45deg,#f6d7a7 0 4px,#cfe3b5 4px 8px,#c9d8ef 8px 12px)"></span>${exploring() ? M.units[0].toUpperCase() + M.units.slice(1) : 'Free ' + M.units}</div>`;
     if (exploring()) html += `<div class="row"><span class="sym">📷</span>Famous place (zoom in)</div>`;
+    html += `<div class="row"><span class="sym">🌲</span>National park (zoom in)</div>`;
+    if (settings.guides && M.key === 'world') html += `<div class="row"><span class="sym line" style="border-color:#e2483d"></span>Equator</div><div class="row"><span class="sym line" style="border-color:#2b6cb0"></span>Prime Meridian</div>`;
+    if (settings.guides && M.key === 'us') html += exploring() ? Object.entries(REGION_FILL).map(([n, c]) => `<div class="row"><span class="sw" style="background:${c[0]}"></span>${n}</div>`).join('') : `<div class="row"><span class="sym line" style="border-color:#1d2a3a"></span>Region border</div>`;
     html += `<div class="row"><span class="sym" style="color:#d62828">★</span>Capital city</div><div class="row"><span class="sym">●</span>Major city</div>
       <div class="row"><span class="sym" style="color:#4f97cf">〰</span>River</div><div class="row"><span class="sym" style="color:#7a5230">▲</span>Mountains</div></div>`;
     lg.innerHTML = html; lg.classList.toggle('collapsed', !settings.legendOpen);
