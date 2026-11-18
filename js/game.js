@@ -107,7 +107,7 @@
   const placePic = (c, cls = 'pic') => { const f = window.PLACE_PICS && window.PLACE_PICS[(M && M.key === 'us' ? 'us:' : 'w:') + c]; return f ? `<img class="${cls}" src="${f}" alt="" loading="lazy">` : ''; };
   const pic = (name, cls = 'pic') => { const f = window.PICS && window.PICS[name]; return f ? `<img class="${cls}" src="${f}" alt="${String(name).replace(/"/g, '')}" loading="lazy">` : ''; };
   const info = (c) => M.info()[c];
-  const nameOf = (c) => (info(c) ? info(c)[0] : c);
+  const nameOf = (c) => (info(c) ? info(c)[0] : c === 'AQ' ? 'Antarctica' : c);
   const shortCap = (c) => info(c)[1].split(/ \(|;|,/)[0].trim();
   const shuffle = (a) => { a = a.slice(); for (let i = a.length - 1; i > 0; i--) { const j = (Math.random() * (i + 1)) | 0; [a[i], a[j]] = [a[j], a[i]]; } return a; };
   const pick = (a) => a[(Math.random() * a.length) | 0];
@@ -227,10 +227,13 @@
   const withThe = (s, re) => (/^(The|the|A|An) /.test(s) || /, the /.test(s) || !re.test(s) ? s : 'the ' + s);
   const forSpeech = (s) => String(s).replace(/\s*\(([^)]*)\)/g, ', $1,').replace(/,\s*,/g, ',').replace(/,\s*([.!?])/g, '$1').replace(/[“”]/g, '"').trim().replace(/,$/, '');
   // queue a list of lines: [{ text, mood: 'excited'|'question'|'calm', voice }]
-  let speechId = 0, onSpeechDone = null, peekingMap = false;
+  let speechId = 0, onSpeechDone = null, peekingMap = false, nowSaying = null;
   function speakLines(lines, defaultVoice, done) {
     if (!('speechSynthesis' in window)) return;
-    stopSpeech(); const myId = ++speechId; onSpeechDone = done || null;
+    // tapping the same 🔊 button again while it is still talking does nothing (no "Illi- Illi- Illi-nois")
+    const key = lines.map((l) => l.text).join('|');
+    if (nowSaying === key && (speechSynthesis.speaking || speechSynthesis.pending)) return;
+    stopSpeech(); const myId = ++speechId; onSpeechDone = done || null; nowSaying = key;
     const jitter = (n) => (Math.random() * 2 - 1) * n;
     lines.forEach((ln, i) => {
       const u = new SpeechSynthesisUtterance(ln.text);
@@ -239,13 +242,13 @@
       u.rate = ({ excited: 1.0, question: 0.96, calm: 0.94, word: 0.82 }[mood] || 0.94) + jitter(0.03);
       u.pitch = ({ excited: 1.14, question: 1.08, calm: 1.0, word: 1.05 }[mood] || 1) + jitter(i % 2 ? 0.05 : 0.03);
       u.volume = 1;
-      if (i === lines.length - 1) u.onend = u.onerror = () => { if (myId === speechId) { const f = onSpeechDone; onSpeechDone = null; f && f(); } };
+      if (i === lines.length - 1) u.onend = u.onerror = () => { if (myId === speechId) { nowSaying = null; const f = onSpeechDone; onSpeechDone = null; f && f(); } };
       if (myId === speechId) speechSynthesis.speak(u);
     });
   }
   function speak(text, voice) { speakLines(String(text).match(/[^.!?]+[.!?]+["”]?|[^.!?]+$/g).map((t) => ({ text: t.trim() })).filter((l) => l.text), voice || pickVoice(['en-US'])); }
   function stopSpeech() {
-    speechId++;
+    speechId++; nowSaying = null;
     if ('speechSynthesis' in window) speechSynthesis.cancel();
     const f = onSpeechDone; onSpeechDone = null; f && f();
   }
@@ -580,7 +583,7 @@
 
   /* Learning guides on the map: hemispheres (world) and U.S. regions (USA), so kids SEE what the cards and questions talk about */
   const REGION_LABELS = [{ t: 'NORTHEAST', ll: [-74.6, 43.4], c: '#2b6cb0' }, { t: 'MIDWEST', ll: [-93.5, 43.6], c: '#9a6400' }, { t: 'SOUTH', ll: [-89.5, 33.2], c: '#b03a1e' },
-    { t: 'WEST', ll: [-114.5, 40.8], c: '#2f7a3a' }, { t: 'WEST', ll: [-152, 64.5], c: '#2f7a3a' }, { t: 'WEST', ll: [-157.6, 21.9], c: '#2f7a3a' }];
+    { t: 'WEST', ll: [-114.5, 40.8], c: '#2f7a3a' }, { t: 'WEST', ll: [-152, 64.5], c: '#2f7a3a' }, { t: 'WEST', ll: [-158.6, 19.5], c: '#2f7a3a' }];
   function setGuides() {
     if (!map || !M) return;
     map.guides = !settings.guides ? null : M.key === 'us' ? { type: 'regions', regionOf: (o) => US_REGION[o], labels: REGION_LABELS } : { type: 'hemi' };
@@ -614,12 +617,13 @@
       map.onZoom = (z) => { $('#zoomHint').style.opacity = z >= 2.2 ? 0 : 1; };
     }
     map.colorOf = colorOf;
+    map.unownedColor = (f) => (f.id === 'AQ' && S && S.antarctica && S.color ? S.color : null);
     map.empireOf = (r) => (S ? S.own[r] : r);
     map.labelName = (r) => (M.key === 'us' ? nameOf(r) : (info(r) ? info(r)[0].replace(/ \(.*\)$/, '') : r));
     map.labelPlan = (r) => labelPlan[r] || null;
     map.labelShort = (r) => (M.key === 'us' ? r : null); // postal code when a state's full name won't fit
     buildNeighbors(topo);
-    map.onRender = () => { updateCompass(); updatePins(); };
+    map.onRender = () => { updateCompass(); updatePins(); placeLegend(); };
     map.view = settings.view;
     map.setMode(key, feats, topo, M.obj);
     if (key === 'us' && window.GEO_WORLD) { // show the rest of the world around the USA (gray, not playable)
@@ -662,6 +666,7 @@
     else if (S.phase === 'pick') introPick();
     else if (S.phase === 'respawn') respawnPrompt();
     else if (S.phase === 'won') showWin();
+    else if (S.phase === 'antarctica') finalIntro();
     else if (S.phase === 'lost') showGameOver();
   }
 
@@ -731,7 +736,7 @@
     map.highlight = new Set(S.player ? regionsOf(S.player) : []);
     map.invalidateBorders(); map.draw();
     const hs = $('#hudStatus');
-    if (S.player && (S.phase === 'play' || S.phase === 'won')) {
+    if (S.player && (S.phase === 'play' || S.phase === 'won' || S.phase === 'antarctica')) {
       const n = regionsOf(S.player).length, pct = Math.round(n / regions.length * 100);
       hs.innerHTML = `<img class="flag" src="${M.flag(S.player)}" alt=""><span class="meta">${esc(nameOf(S.player))} — ${n} / ${regions.length} ${M.units} • 💪 ${S.comebacks || 0} ${S.comebacks === 1 ? 'comeback' : 'comebacks'}</span><span class="bar"><i style="width:${pct}%"></i></span>`;
     } else if (S.phase === 'explore') hs.innerHTML = `<span class="meta">🔭 Exploring ${M.key === 'us' ? 'the USA' : 'the world'}</span>`;
@@ -756,6 +761,16 @@
       <div class="row"><span class="sym" style="color:#4f97cf">〰</span>River</div><div class="row"><span class="sym" style="color:#7a5230">▲</span>Mountains</div></div>`;
     lg.innerHTML = html; lg.classList.toggle('collapsed', !settings.legendOpen);
     $('#lgToggle').onclick = () => { settings.legendOpen = !settings.legendOpen; saveSettings(); renderLegend(); };
+  }
+
+  // USA Mode: keep the map key from covering the Alaska and Hawaii boxes (it sits just to their right, over Mexico)
+  function placeLegend() {
+    const lg = $('#legend'); let left = 12;
+    if (map && map.view === '2d' && map.p2 && map.p2.insets) {
+      const t = map.t, right = Math.max(...map.p2.insets().map(([x, y, w, h]) => (x + w) * t.k + t.x));
+      if (right > 0 && right < map.w / 2) left = Math.round(right + 10);
+    }
+    lg.style.left = left + 'px';
   }
 
   let bannerTimer = null;
@@ -952,7 +967,7 @@
     rows += `<li><span class="ico">📏</span><div><b>Size</b>${sizeLine(r)}</div></li>`;
     return `<img class="flag-big" src="${M.flag(r)}" alt="Flag of ${esc(I[0])}">
       <div class="cname">${esc(I[0])}</div>${sayRowHTML(r)}
-      ${us ? `<div class="sub">📮 Abbreviation: <b>${r}</b><br>⭐ Capital: ${esc(I[1])}<span class="langs">🧭 Region: <b>${esc(continentOf(r))}</b>${whereLine(r)}</span></div>` : `<div class="sub">⭐ Capital: ${esc(I[1])}<span class="langs">🌎 Continent: <b>${esc(TWO_CONTINENTS[r] ? TWO_CONTINENTS[r].join(' & ') : continentOf(r))}</b></span>${whereLine(r, true) ? `<span class="langs">🧭 ${whereLine(r, true)}</span>` : ''}<span class="langs">🗣️ Language: <b>${esc(I[2])}</b>${I[3] ? `<br><span class="also">Also spoken: ${esc(I[3])}</span>` : ''}</span></div>`}
+      ${us ? `<div class="sub">📮 Abbreviation: <b>${r}</b><br>⭐ Capital: ${esc(I[1])} <button class="chip say-cap" data-say="cap" aria-label="Hear the capital">🔊</button><span class="langs">🧭 Region: <b>${esc(continentOf(r))}</b>${whereLine(r)}</span></div>` : `<div class="sub">⭐ Capital: ${esc(I[1])} <button class="chip say-cap" data-say="cap" aria-label="Hear the capital">🔊</button><span class="langs">🌎 Continent: <b>${esc(TWO_CONTINENTS[r] ? TWO_CONTINENTS[r].join(' & ') : continentOf(r))}</b></span>${whereLine(r, true) ? `<span class="langs">🧭 ${whereLine(r, true)}</span>` : ''}<span class="langs">🗣️ Language: <b>${esc(I[2])}</b>${I[3] ? `<br><span class="also">Also spoken: ${esc(I[3])}</span>` : ''}</span></div>`}
       ${status}
       <div class="didyou" id="factBox"><b>💡 Did you know?</b><span id="factText">${esc(fact)}</span></div>
       <div class="card-tools"><button class="chip" id="moreFact">🔀 Another fact</button><button class="chip" id="zoomTo">🔎 Zoom to it</button></div>
@@ -971,7 +986,8 @@
   }
   function wireSay(r, root) {
     root.querySelectorAll('[data-say]').forEach((b) => b.onclick = () => {
-      if (b.dataset.say === 'en') speakLines([{ text: nameOf(r).replace(/ \(.*\)$/, ''), mood: 'word' }], pickVoice(['en-US']));
+      if (b.dataset.say === 'cap') speakLines([{ text: info(r)[1].replace(/\s*\([^)]*\)/g, ''), mood: 'word' }], M.key === 'us' ? pickVoice(['en-US']) : pickVoice(accentFor(r)));
+      else if (b.dataset.say === 'en') speakLines([{ text: nameOf(r).replace(/ \(.*\)$/, ''), mood: 'word' }], pickVoice(['en-US']));
       else { const L = localName(r); speakLines([{ text: L[1], mood: 'word' }], localVoice(L)); }
     });
   }
@@ -1048,7 +1064,9 @@
     const fa = mainFeature(a), fb = mainFeature(b); if (!fa || !fb) return null;
     const raw = Math.abs(fb.lp[0] - fa.lp[0]);
     if (strict && raw > 140 && raw < 220) return null; // halfway around the world: going east or west is about the same
-    const dx = ((fb.lp[0] - fa.lp[0] + 540) % 360) - 180, dy = fb.lp[1] - fa.lp[1];
+    // east-west degrees shrink away from the equator, so scale them to match what the map shows
+    const midLat = (fa.lp[1] + fb.lp[1]) / 2 * Math.PI / 180;
+    const dx = (((fb.lp[0] - fa.lp[0] + 540) % 360) - 180) * Math.cos(midLat), dy = fb.lp[1] - fa.lp[1];
     const ang = (Math.atan2(dx, dy) * 180 / Math.PI + 360) % 360;
     const i = Math.round(ang / 45) % 8, off = Math.abs(((ang - i * 45 + 540) % 360) - 180);
     if (strict && off > 15) return null; // too close to the line between two directions
@@ -1130,8 +1148,10 @@
     direction(r) {
       const from = S.player; const d = from && from !== r ? directionFrom(from, r, true) : null;
       if (!d) return M.key === 'us' ? Qs.continent(r) : Qs.hemisphere(r);
-      const cardinal = DIRS.indexOf(d) % 2 === 0;
-      const opts = cardinal ? ['north', 'east', 'south', 'west'] : ['northeast', 'southeast', 'southwest', 'northwest'];
+      // the right answer plus 3 wrong ones that are clearly wrong (at least a quarter turn away), from all 8 directions
+      const di = DIRS.indexOf(d);
+      const far = DIRS.filter((x, j) => { const k = Math.abs(j - di) % 8; return Math.min(k, 8 - k) >= 2; });
+      const opts = shuffle([d, ...shuffle(far).slice(0, 3)]);
       const cap = (x) => x[0].toUpperCase() + x.slice(1);
       if (acrossPacific(from, r)) {
         return { q: `🧭 You travel from ${nameOf(from)} to ${nameOf(r)} across the Pacific Ocean. Which direction do you go? (Use the compass!)`, opts: opts.map(cap), ans: cap(d),
@@ -1272,8 +1292,14 @@
       const fact = Q.explain;
       $('#qres').innerHTML = `<div class="odds">${right ? `✅ Correct! ${esc(fact)}<br>Your chance grows to ${odds(B.mine, B.total)}!`
         : `❌ Not quite. ${esc(fact)}<br>${esc(nameOf(B.enemy))}’s chance grows to ${odds(B.total - B.mine, B.total)}.`}</div>
-        <div class="btn-row"><button class="btn primary" id="qNext">${i === 0 ? 'Next question →' : 'Get ready to spin! 🎡'}</button></div>`;
-      $('#qNext').onclick = () => (i === 0 ? askQ(B, qs, 1) : spinStage(B));
+        <div class="btn-row"><button class="btn primary" id="qNext">${i === 0 ? 'Next question →' : '🎡 Spin the wheel!'}</button></div>`;
+      if (i === 0) { $('#qNext').onclick = () => askQ(B, qs, 1); return; }
+      // after the 2nd answer: a big SPIN button right on the wheel, and the wheel scrolls back into view (no scrolling to the bottom)
+      const go = () => { const o = $('#spinOver'); if (!o || o.disabled) return; o.disabled = true; o.remove(); spinStage(B); $('#spinBtn').click(); $('#wheelBox').scrollIntoView({ behavior: 'smooth', block: 'start' }); };
+      const over = document.createElement('button'); over.className = 'spin-over'; over.id = 'spinOver'; over.innerHTML = '🎡<b>SPIN!</b>';
+      over.onclick = go; $('#wheelBox .wheel-wrap').appendChild(over);
+      $('#qNext').onclick = go;
+      setTimeout(() => { if ($('#spinOver')) $('#wheelBox').scrollIntoView({ behavior: 'smooth', block: 'start' }); }, 1600); // time to read whether they got it right
     });
   }
 
@@ -1311,7 +1337,7 @@
       const rot = 360 * 6 + (360 - a);
       sfx.spin();
       $('#wheel').animate([{ transform: 'rotate(0deg)' }, { transform: `rotate(${rot}deg)` }], { duration: 3400, easing: 'cubic-bezier(.12,.65,.2,1)', fill: 'forwards' });
-      setTimeout(() => resolveBattle(B, win), 3600);
+      setTimeout(() => { resolveBattle(B, win); const o = $('#flipOut'); if (o) o.scrollIntoView({ behavior: 'smooth', block: 'center' }); }, 3600);
     };
   }
 
@@ -1332,7 +1358,7 @@
         <div class="btn-row"><button class="btn go" id="resOk">${done ? '🏆 See your victory!' : 'Keep conquering! ⚔️'}</button></div>`;
       $('#resOk').onclick = () => {
         closeModal(); refresh(); map.pulse(taken);
-        if (done) { S.phase = 'won'; save(); showWin(); }
+        if (done) { if (M.key === 'world' && !S.antarctica) { S.phase = 'antarctica'; save(); setTimeout(finalIntro, 1800); } else { S.phase = 'won'; save(); showWin(); } }
         else banner(`${regionsOf(S.player).length} / ${regions.length} ${M.units} are yours!`, 3500);
       };
     } else {
@@ -1381,6 +1407,97 @@
   function statsHTML() {
     return `<div class="pp-stats"><div>⚔️ ${S.battles} ${S.battles === 1 ? 'battle' : 'battles'}</div><div>🏆 ${S.wins} ${S.wins === 1 ? 'win' : 'wins'}</div><div>💪 ${S.comebacks || 0} ${S.comebacks === 1 ? 'comeback' : 'comebacks'}</div><div>🗺️ ${S.visited.length} / ${regions.length} visited</div></div>`;
   }
+  /* ================= ❄️ FINAL CONQUEST: ANTARCTICA (World Mode) =================
+     After every country is yours, one place is left. 10 questions about the whole world:
+     each right answer turns 1 of the wheel's 10 slices to your color (10% each). All 10 right = a sure win,
+     but you still spin. Losing here never costs anything: try again with new questions. */
+  function finalIntro() {
+    banner(null); map.flyToPoint([20, -78], 1.6);
+    openModal(`<div style="text-align:center;font-size:56px">❄️🐧</div><h3 class="mtitle">Final conquest: Antarctica!</h3>
+      <p class="center">Every country on Earth belongs to ${esc(nameOf(S.player))}! Only one place is left: <b>Antarctica</b>, the icy continent around the South Pole. No country owns it.</p>
+      <p class="center">Answer <b>10 questions</b> about the whole world. Each right answer gives you <b>10%</b> more chance to win. Get all 10 right, and the whole wheel is yours!</p>
+      <div class="btn-row"><button class="btn go" id="fGo">Start the final conquest</button></div>`, { noClose: true });
+    card.insertAdjacentHTML('afterbegin', '<span data-lock></span>');
+    $('#fGo').onclick = () => startFinal(0);
+  }
+  function finalQuestions() {
+    const cats = settings.cats.filter((c) => CATS[c]), use = cats.length ? cats : Object.keys(CATS);
+    const qs = [];
+    for (let i = 0; i < 10; i++) {
+      const kinds = { capitals: 'capital', orientation: pick(['continent', 'hemisphere']), landmarks: 'place', geography: pick(['land', 'animal']), flags: pick(['flag', 'flagReverse']) };
+      const r = pick(regions);
+      qs.push({ r, Q: Qs[kinds[use[i % use.length]]](r) });
+    }
+    return qs;
+  }
+  function startFinal(attempt) {
+    stopAllSounds(); stopSpeech();
+    const B = { enemy: 'AQ', clicked: null, attempt, final: true, mine: 0, total: 10 };
+    openModal(`<h3 class="mtitle">${attempt ? `💪 Try again! (round ${attempt + 1})` : '❄️ Final conquest!'}</h3>
+      <div class="versus"><div class="side"><img src="${M.flag(S.player)}" alt=""><div>You: ${esc(nameOf(S.player))}</div><div class="small">The whole world</div></div>
+      <div class="vs">VS</div><div class="side"><div style="font-size:44px;line-height:1">🐧</div><div>Antarctica</div><div class="small">The last place</div></div></div>
+      <div id="wheelBox"></div><div id="stage"></div>`, { noClose: true });
+    card.insertAdjacentHTML('afterbegin', '<span data-lock></span>');
+    drawWheel(B);
+    askFinal(B, finalQuestions(), 0);
+  }
+  function askFinal(B, qs, i) {
+    const { r, Q } = qs[i]; B.clicked = r;
+    $('#stage').innerHTML = `<p class="center small">🧠 <b>Question ${i + 1} of 10</b>. Each right answer adds 10% to your chance!</p>
+      <div class="quiz-q">${esc(Q.q)}</div>${Q.img ? `<img class="quiz-flag" src="${Q.img}" alt="A flag">` : ''}${Q.photo || ''}
+      <div class="help-row"><span>Not sure? Look it up!</span><button class="chip" id="peekCard">📖 Look at the card</button><button class="chip" id="peekMap">🗺️ View map</button></div>
+      <div class="quiz-opts">${Q.opts.map((o, k) => `<button data-k="${k}">${Q.kind === 'flag' ? `<img src="${M.flag(o)}" alt="A flag">` : Q.pics ? `${pic(o, 'opt-pic')}<span>${esc(o)}</span>` : Q.optPic ? `${Q.optPic(o)}<span>${esc(o)}</span>` : esc(o)}</button>`).join('')}</div>
+      <div id="qres"></div>`;
+    $('#stage').scrollIntoView({ block: 'start' });
+    $('#peekCard').onclick = () => peekCard(B);
+    $('#peekMap').onclick = () => peekMap(B);
+    const btns = card.querySelectorAll('.quiz-opts button');
+    btns.forEach((b) => b.onclick = () => {
+      card.querySelectorAll('.help-row button').forEach((x) => (x.disabled = true));
+      const right = Q.opts[+b.dataset.k] === Q.ans;
+      btns.forEach((x) => { x.disabled = true; if (Q.opts[+x.dataset.k] === Q.ans) x.classList.add('right'); });
+      if (!right) b.classList.add('wrong');
+      right ? sfx.right() : sfx.wrong();
+      if (right) B.mine++;
+      drawWheel(B, right);
+      const last = i === 9;
+      $('#qres').innerHTML = `<div class="odds">${right ? '✅ Correct!' : '❌ Not quite.'} ${esc(Q.explain)}<br>Your chance: ${odds(B.mine, B.total)} (${B.mine} of 10 right)</div>
+        <div class="btn-row"><button class="btn primary" id="qNext">${last ? '🎡 Spin the wheel!' : 'Next question →'}</button></div>`;
+      if (!last) { $('#qNext').onclick = () => askFinal(B, qs, i + 1); return; }
+      const go = () => { const o = $('#spinOver'); if (!o || o.disabled) return; o.disabled = true; o.remove(); finalSpin(B); $('#wheelBox').scrollIntoView({ behavior: 'smooth', block: 'start' }); };
+      const over = document.createElement('button'); over.className = 'spin-over'; over.id = 'spinOver'; over.innerHTML = '🎡<b>SPIN!</b>';
+      over.onclick = go; $('#wheelBox .wheel-wrap').appendChild(over);
+      $('#qNext').onclick = go;
+      setTimeout(() => { if ($('#spinOver')) $('#wheelBox').scrollIntoView({ behavior: 'smooth', block: 'start' }); }, 1600);
+    });
+  }
+  function finalSpin(B) {
+    $('#stage').innerHTML = `<p class="center">Your chance to win Antarctica: ${odds(B.mine, B.total)}.</p><div id="flipOut"></div>`;
+    const win = Math.random() < B.mine / B.total;
+    const idx = win ? (Math.random() * B.mine) | 0 : B.mine + ((Math.random() * (B.total - B.mine)) | 0);
+    const a = (idx + 0.2 + Math.random() * 0.6) * 360 / B.total;
+    sfx.spin();
+    $('#wheel').animate([{ transform: 'rotate(0deg)' }, { transform: `rotate(${360 * 6 + (360 - a)}deg)` }], { duration: 3400, easing: 'cubic-bezier(.12,.65,.2,1)', fill: 'forwards' });
+    setTimeout(() => {
+      const out = $('#flipOut');
+      if (win) {
+        S.antarctica = true; S.battles++; S.phase = 'won'; save();
+        map.flyToPoint([20, -78], 1.6); map.pulse && map.draw(); refresh();
+        out.innerHTML = `<div class="result win">🐧 Antarctica is yours! You conquered the WHOLE world!</div>
+          <div class="btn-row"><button class="btn go" id="fDone">Celebrate! 🏆</button></div>`;
+        sfx.win(); confetti(120);
+        $('#fDone').onclick = () => { closeModal(); showWin(); };
+      } else {
+        S.battles++; save();
+        out.innerHTML = `<div class="result lose">Not this time. Antarctica held on!</div>
+          <p class="center">It is okay to feel disappointed. You lose nothing here, and every try brings new questions.</p>
+          <div class="btn-row"><button class="btn go" id="fAgain">Try again</button></div>`;
+        $('#fAgain').onclick = () => startFinal(B.attempt + 1);
+      }
+      out.scrollIntoView({ behavior: 'smooth', block: 'center' });
+    }, 3600);
+  }
+
   function showWin() {
     banner(null); confetti(220); sfx.win();
     // personal best: fewest battles to conquer everything (kids compete with their past selves)
@@ -1390,7 +1507,7 @@
     const recordHTML = newRecord ? `<p class="center record">🥇 New personal best: ${S.battles} battles! Can you beat it next time?</p>`
       : `<p class="center record">Your best is ${best.battles} battles. This time: ${S.battles}. Can you beat your record next time?</p>`;
     openModal(`<div style="text-align:center;font-size:64px">🏆</div><h3 class="mtitle">You conquered ${M.key === 'us' ? 'the USA' : 'the WORLD'}!</h3>
-      <p class="center">All ${regions.length} ${M.units} belong to ${esc(nameOf(S.player))}. Amazing!</p>${statsHTML()}${recordHTML}
+      <p class="center">All ${regions.length} ${M.units}${S.antarctica ? ' and Antarctica' : ''} belong to ${esc(nameOf(S.player))}. Amazing!</p>${statsHTML()}${recordHTML}
       <div class="btn-row" style="margin-top:16px"><button class="btn ghost" id="wPass">🛂 Passport</button><button class="btn go" id="wAgain">Play again</button></div>${supportHTML()}`, { wide: true });
     $('#wAgain').onclick = () => { closeModal(); store.del(SAVE_KEY(M.key)); showTitle(); };
     $('#wPass').onclick = () => showPassport();

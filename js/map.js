@@ -78,6 +78,51 @@
     f.lite = liteFeature(f); f.mid = liteFeature(f, 0.45); // simpler copies for the globe
   }
 
+  // The USA map: like d3.geoAlbersUsa, but Alaska and Hawaii sit in boxes out in the Pacific Ocean
+  // (west of California and Baja), instead of on top of Mexico.
+  function albersUsaPacific() {
+    const eps = 1e-6, L48 = d3.geoAlbers(),
+      AK = d3.geoConicEqualArea().rotate([154, 0]).center([-2, 58.5]).parallels([55, 65]),
+      HI = d3.geoConicEqualArea().rotate([157, 0]).center([-3, 19.9]).parallels([8, 18]);
+    // boxes in units of the scale, measured from the map's center: [x0, y0, x1, y1] and where each map is placed
+    const BOX = { ak: [-0.505, 0.120, -0.294, 0.234], hi: [-0.400, 0.250, -0.301, 0.318] };
+    const AT = { ak: [-0.387, 0.201], hi: [-0.391, 0.296] };
+    let l48P, akP, hiP, pt, cache, cacheStream;
+    const ps = { point(x, y) { pt = [x, y]; } };
+    const proj = (c) => { const [x, y] = c; pt = null; l48P.point(x, y); if (pt) return pt; akP.point(x, y); if (pt) return pt; hiP.point(x, y); return pt; };
+    const inBox = (b, x, y) => x >= b[0] && x < b[2] && y >= b[1] && y < b[3];
+    proj.invert = (c) => { const k = L48.scale(), t = L48.translate(), x = (c[0] - t[0]) / k, y = (c[1] - t[1]) / k;
+      return (inBox(BOX.ak, x, y) ? AK : inBox(BOX.hi, x, y) ? HI : L48).invert(c); };
+    proj.stream = (st) => {
+      if (cache && cacheStream === st) return cache;
+      const ss = [L48.stream(cacheStream = st), AK.stream(st), HI.stream(st)];
+      return (cache = { point(x, y) { for (const q of ss) q.point(x, y); }, sphere() { for (const q of ss) q.sphere(); },
+        lineStart() { for (const q of ss) q.lineStart(); }, lineEnd() { for (const q of ss) q.lineEnd(); },
+        polygonStart() { for (const q of ss) q.polygonStart(); }, polygonEnd() { for (const q of ss) q.polygonEnd(); } });
+    };
+    proj.precision = (v) => { if (v === undefined) return L48.precision(); L48.precision(v); AK.precision(v); HI.precision(v); cache = null; return proj; };
+    proj.scale = (v) => { if (v === undefined) return L48.scale(); L48.scale(v); AK.scale(v * 0.35); HI.scale(v); return proj.translate(L48.translate()); };
+    proj.translate = (v) => {
+      if (v === undefined) return L48.translate();
+      const k = L48.scale(), [x, y] = v;
+      const clip = (b) => [[x + b[0] * k + eps, y + b[1] * k + eps], [x + b[2] * k - eps, y + b[3] * k - eps]];
+      l48P = L48.translate(v).clipExtent([[x - 0.455 * k, y - 0.238 * k], [x + 0.455 * k, y + 0.238 * k]]).stream(ps);
+      akP = AK.translate([x + AT.ak[0] * k, y + AT.ak[1] * k]).clipExtent(clip(BOX.ak)).stream(ps);
+      hiP = HI.translate([x + AT.hi[0] * k, y + AT.hi[1] * k]).clipExtent(clip(BOX.hi)).stream(ps);
+      cache = null; return proj;
+    };
+    // the two boxes on screen, so the map can draw a frame around each one
+    proj.insets = () => { const k = L48.scale(), [x, y] = L48.translate(); return Object.values(BOX).map((b) => [x + b[0] * k, y + b[1] * k, (b[2] - b[0]) * k, (b[3] - b[1]) * k]); };
+    proj.fitExtent = (ext, obj) => {
+      proj.scale(1).translate([0, 0]);
+      const [[a, b], [c, d]] = d3.geoPath(proj).bounds(obj);
+      const k = Math.min((ext[1][0] - ext[0][0]) / (c - a), (ext[1][1] - ext[0][1]) / (d - b));
+      proj.scale(k).translate([ext[0][0] + ((ext[1][0] - ext[0][0]) - k * (c + a)) / 2, ext[0][1] + ((ext[1][1] - ext[0][1]) - k * (d + b)) / 2]);
+      return proj;
+    };
+    return proj.scale(1070);
+  }
+
   class GameMap {
     static prepFeature(f) { prepFeature(f); }
 
@@ -146,7 +191,7 @@
       const pad = 14, ext = [[pad, pad], [this.w - pad, this.h - pad]];
       if (!this.mode) return;
       if (this.mode === 'us') {
-        this.p2 = d3.geoAlbersUsa().fitExtent(ext, { type: 'FeatureCollection', features: this.features });
+        this.p2 = albersUsaPacific().fitExtent(ext, { type: 'FeatureCollection', features: this.features });
         this.center3 = [96, -38];
       } else {
         this.p2 = d3.geoNaturalEarth1().fitExtent(ext, this.sphere);
@@ -294,12 +339,12 @@
     invalidateBorders() { this.empireMesh = null; }
 
     // fly to a spot on Earth at "region" zoom (used by the blue location arrow); returns false if it's off this map
-    flyToPoint(ll) {
+    flyToPoint(ll, zoom) {
       if (this.view === '2d') {
         const p = this.p2(ll); if (!p) return false;
-        const k = this.mode === 'us' ? 2.6 : 6;
+        const k = zoom || (this.mode === 'us' ? 2.6 : 6);
         this.sel.transition().duration(1000).call(this.zoom.transform, d3.zoomIdentity.translate(this.w / 2, this.h / 2).scale(k).translate(-p[0], -p[1]));
-      } else this._tweenRot([-ll[0], -ll[1]], this.mode === 'us' ? 6 : 5);
+      } else this._tweenRot([-ll[0], -ll[1]], zoom || (this.mode === 'us' ? 6 : 5));
       return true;
     }
     regionAt(ll) {
@@ -408,6 +453,13 @@
       }
       const eff = this.effZoom();
       const scale = this._pxScale();
+      // USA Mode: a box around Alaska and around Hawaii, which are shown out in the Pacific Ocean (not where they really are)
+      if (is2d && this.p2.insets) {
+        for (const [x, y, w, h] of this.p2.insets()) {
+          ctx.fillStyle = '#c4e0f2'; ctx.fillRect(x, y, w, h);
+          ctx.strokeStyle = 'rgba(29,42,58,.55)'; ctx.lineWidth = lw * 1.5; ctx.strokeRect(x, y, w, h);
+        }
+      }
       // rest-of-world backdrop (USA Mode): soft gray land with thin borders, not clickable
       if (this.backdrop) {
         ctx.fillStyle = '#e6e1d6'; shapes(this.backdrop, 'fill');
@@ -417,7 +469,7 @@
       const byColor = new Map();
       for (const f of this.features) {
         if (f.geometry.type === 'Point') continue;
-        let c = f.o ? this.colorOf(f.o) : COL.neutral;
+        let c = f.o ? this.colorOf(f.o) : (this.unownedColor && this.unownedColor(f)) || COL.neutral; // e.g. Antarctica after the final conquest
         const fl = f.o && this.flash.get(f.o);
         if (fl) { const ph = ((performance.now() - fl) / 200) | 0; if (ph % 2 === 0) c = '#ffffff'; }
         if (!byColor.has(c)) byColor.set(c, []); byColor.get(c).push(f);
