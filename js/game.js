@@ -1266,7 +1266,7 @@
       btns.forEach((x) => { x.disabled = true; if (Q.opts[+x.dataset.k] === Q.ans) x.classList.add('right'); });
       if (!right) b.classList.add('wrong');
       right ? sfx.right() : sfx.wrong();
-      B.m8 += (i === 0 ? 2 : 1) * (right ? 1 : -1); setOdds(B);
+      B.m8 += right ? 2 : -2; setOdds(B); // every answer moves the wheel the same amount, so one right and one wrong always lands back at 50/50 (the wheel never goes past 7/8 or below 1/8)
       B.asked = (B.asked || 0) + 1; if (!right) B.missed = (B.missed || 0) + 1;
       drawWheel(B, true);
       const fact = Q.explain;
