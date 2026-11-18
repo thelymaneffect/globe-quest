@@ -1523,10 +1523,13 @@
   /* ================= PASSPORT ================= */
   function showPassport() {
     const c = new Set(S.conquered);
+    const home = S.startedAs || S.player;
+    const list = home ? [home, ...regions.filter((r) => r !== home)] : regions;
+    const stamp = (r) => r === home ? '<span class="stamp home">HOME</span>' : c.has(r) ? '<span class="stamp">CONQUERED</span>' : '';
     openModal(`<h3 class="mtitle">🛂 My Passport</h3>
-      <p class="center small">Every ${M.unit} is in your passport. Flags stay gray until you conquer them — then they get full color and a stamp! Tap any flag to visit it.</p>
+      <p class="center small">Every ${M.unit} is in your passport. Your home is stamped from the start. Other flags stay gray until you conquer them, and then they get full color and a stamp! Tap any flag to visit it.</p>
       ${statsHTML()}
-      <div class="pp-grid">${regions.map((r) => `<button class="pp ${c.has(r) ? '' : 'locked'}" data-r="${r}"><img src="${M.flag(r)}" alt="" loading="lazy">${c.has(r) ? '<span class="stamp">CONQUERED</span>' : ''}<div>${esc(nameOf(r))}</div></button>`).join('')}</div>`, { wide: true });
+      <div class="pp-grid">${list.map((r) => `<button class="pp ${r === home || c.has(r) ? '' : 'locked'}" data-r="${r}"><img src="${M.flag(r)}" alt="" loading="lazy">${stamp(r)}<div>${esc(nameOf(r))}</div></button>`).join('')}</div>`, { wide: true });
     card.querySelectorAll('.pp').forEach((b) => b.onclick = () => { closeModal(); map.flyTo(b.dataset.r); setTimeout(() => onRegionClick(b.dataset.r), 700); });
   }
 

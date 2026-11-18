@@ -146,6 +146,7 @@ p.center{text-align:center}
 .pp.locked img{filter:grayscale(1) opacity(.45)}
 .pp.locked div{color:var(--ink-soft)}
 .pp .stamp{position:absolute;top:8px;left:50%;transform:translateX(-50%) rotate(-14deg);border:2px solid var(--red);color:var(--red);font-size:10px;padding:1px 4px;border-radius:4px;background:rgba(255,255,255,.85);letter-spacing:.05em}
+.pp .stamp.home{border-color:#0a84ff;color:#0a84ff}
 .pp-stats{display:flex;gap:10px;justify-content:center;flex-wrap:wrap}
 .pp-stats div{background:#faf6ee;border-radius:12px;padding:8px 14px;font-weight:800}
 .respawn-list{display:grid;grid-template-columns:repeat(auto-fill,minmax(150px,1fr));gap:8px;max-height:46vh;overflow-y:auto;margin:10px 0}
