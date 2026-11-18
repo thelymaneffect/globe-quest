@@ -329,6 +329,8 @@
       <div class="btn-row"><button class="btn gold" data-close>Close</button></div>`, { wide: true });
   }
   document.addEventListener('click', (e) => {
+    const pl = e.target.closest('[data-park]');
+    if (pl) { const pk = (window.PARKS || []).find((x) => x[0] === pl.dataset.park); if (pk) { closeModal(); showPark(pk, pl.dataset.from); } return; }
     if (e.target.closest('[data-credits]')) { e.preventDefault(); sfx.click(); showCredits(); return; }
     if (e.target.closest('[data-support]')) { sfx.click(); showSupport(); }
     else if (e.target.closest('[data-request]')) { sfx.click(); showRequest(); }
@@ -471,7 +473,7 @@
   const US_NAMES = Object.fromEntries('AL Alabama|AK Alaska|AZ Arizona|AR Arkansas|CA California|CO Colorado|CT Connecticut|DE Delaware|FL Florida|GA Georgia|HI Hawaii|ID Idaho|IL Illinois|IN Indiana|IA Iowa|KS Kansas|KY Kentucky|LA Louisiana|ME Maine|MD Maryland|MA Massachusetts|MI Michigan|MN Minnesota|MS Mississippi|MO Missouri|MT Montana|NE Nebraska|NV Nevada|NH New Hampshire|NJ New Jersey|NM New Mexico|NY New York|NC North Carolina|ND North Dakota|OH Ohio|OK Oklahoma|OR Oregon|PA Pennsylvania|RI Rhode Island|SC South Carolina|SD South Dakota|TN Tennessee|TX Texas|UT Utah|VT Vermont|VA Virginia|WA Washington|WV West Virginia|WI Wisconsin|WY Wyoming|AS American Samoa|VI the U.S. Virgin Islands'.split('|').map((x) => [x.slice(0, 2), x.slice(3)]));
   function updateParks(z, placed) {
     const P = window.PARKS;
-    const show = P && settings.parks !== false && z >= (M.key === 'us' ? 3.5 : 3);
+    const show = P && exploring() && z >= (M.key === 'us' ? 3.5 : 3); // in games they would distract from the takeovers
     const named = z >= (M.key === 'us' ? 7 : 6);
     P && P.forEach((pk, i) => {
       let el = parkEls.get(i);
@@ -490,15 +492,16 @@
       el.style.transform = `translate(${Math.round(xy[0])}px, ${Math.round(xy[1])}px)`;
     });
   }
-  function showPark(pk) {
+  function showPark(pk, from) {
     const f = window.PARK_PICS && window.PARK_PICS[pk[0]];
     sfx.click();
     openModal(`${f ? `<img class="place-photo" src="${f}" alt="${esc(pk[0])} National Park">` : ''}
       <h3 class="mtitle">🌲 ${esc(pk[0])} National Park</h3>
-      <p class="center small" style="margin-top:-4px">📍 In ${esc(US_NAMES[pk[1]] || pk[1])}</p>
+      <p class="center small" style="margin-top:-4px">📍 In ${esc((() => { const n = [pk[1], ...(pk[5] || [])].map((c) => US_NAMES[c] || c); return n.length > 2 ? n.slice(0, -1).join(', ') + ', and ' + n.at(-1) : n.join(' and '); })())}</p>
       <p class="place-about">${esc(pk[4])}</p>
       <p class="center small">National parks protect special nature so everyone can enjoy it, now and in the future. The United States has 63 of them.</p>
-      <div class="btn-row"><button class="btn gold" data-close>${exploring() ? 'Keep exploring' : 'Back to the map'}</button></div>`);
+      <div class="btn-row">${from ? `<button class="btn ghost" id="pkBack">Back to ${esc(nameOf(from))}</button>` : ''}<button class="btn gold" data-close>${exploring() ? 'Keep exploring' : 'Back to the map'}</button></div>`);
+    if (from) $('#pkBack').onclick = () => { closeModal(); onRegionClick(from, null); };
   }
   function clearPins() { pinEls.forEach((el) => el.remove()); pinEls.clear(); parkEls.forEach((el) => el.remove()); parkEls.clear(); $('#pins').hidden = true; }
   function showPlace(c) {
@@ -746,7 +749,7 @@
     for (const [e, n] of top) html += `<div class="row"><span class="sw" style="background:${empireColor(e)}"></span>${esc(nameOf(e))}’s empire (${n})</div>`;
     html += `<div class="row"><span class="sw" style="background:repeating-linear-gradient(45deg,#f6d7a7 0 4px,#cfe3b5 4px 8px,#c9d8ef 8px 12px)"></span>${exploring() ? M.units[0].toUpperCase() + M.units.slice(1) : 'Free ' + M.units}</div>`;
     if (exploring()) html += `<div class="row"><span class="sym">📷</span>Famous place (zoom in)</div>`;
-    html += `<div class="row"><span class="sym">🌲</span>National park (zoom in)</div>`;
+    if (exploring()) html += `<div class="row"><span class="sym">🌲</span>National park (zoom in)</div>`;
     if (settings.guides && M.key === 'world') html += `<div class="row"><span class="sym line" style="border-color:#e2483d"></span>Equator</div><div class="row"><span class="sym line" style="border-color:#2b6cb0"></span>Prime Meridian</div>`;
     if (settings.guides && M.key === 'us') html += exploring() ? Object.entries(REGION_FILL).map(([n, c]) => `<div class="row"><span class="sw" style="background:${c[0]}"></span>${n}</div>`).join('') : `<div class="row"><span class="sym line" style="border-color:#1d2a3a"></span>Region border</div>`;
     html += `<div class="row"><span class="sym" style="color:#d62828">★</span>Capital city</div><div class="row"><span class="sym">●</span>Major city</div>
@@ -934,6 +937,15 @@
     const ex = extra(r);
     if (ex[0]) rows += `<li class="with-pic"><span class="ico">🏛️</span><div><b>Famous place</b>${esc(ex[0])}</div>${placePic(r)}</li>`;
     if (ex[1]) rows += `<li><span class="ico">🎉</span><div><b>Famous for</b>${esc(ex[1])}</div></li>`;
+    if (us && window.PARKS) { // 🌲 national parks in this state, with a photo of the first one
+      const parks = window.PARKS.slice().filter((pk) => pk[1] === r || (pk[5] || []).includes(r));
+      if (parks.length) {
+        const STAR = ['Yosemite', 'Denali', 'Arches', 'Rocky Mountain', 'Everglades', 'Mount Rainier', 'Grand Canyon', 'Big Bend', 'Badlands', 'Carlsbad Caverns', 'Hawaii Volcanoes', 'Yellowstone', 'Glacier'];
+        parks.sort((a, b) => (STAR.includes(b[0]) ? 1 : 0) - (STAR.includes(a[0]) ? 1 : 0)); // the best-known park first, with its photo
+        const f = window.PARK_PICS && window.PARK_PICS[parks[0][0]];
+        rows += `<li class="with-pic"><span class="ico">🌲</span><div><b>${parks.length > 1 ? `National parks (${parks.length})` : 'National park'}</b>${parks.map((pk) => `<button class="park-link" data-park="${esc(pk[0])}" data-from="${r}">${esc(pk[0])}</button>`).join(parks.length > 2 ? ', ' : ' and ')}</div>${f ? `<img class="pic" src="${f}" alt="${esc(parks[0][0])} National Park" loading="lazy">` : ''}</li>`;
+      }
+    }
     const nat = nature(r);
     if (nat.animal) rows += `<li class="with-pic"><span class="ico">🐾</span><div><b>Animal that lives here</b>${esc(nat.animal)}</div>${pic(nat.animal)}</li>`;
     if (nat.lands.length) rows += `<li><span class="ico">🌿</span><div style="width:100%"><b>Types of land</b><div class="land-grid">${nat.lands.map((k) => `<figure>${pic(LANDS[k][1], 'land-pic')}<figcaption>${esc(LANDS[k][0])}</figcaption></figure>`).join('')}</div></div></li>`;

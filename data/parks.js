@@ -1,4 +1,4 @@
-// The 63 national parks of the United States: [name, state, longitude, latitude, about]
+// The 63 national parks of the United States: [name, state, longitude, latitude, about, other states it reaches into]
 window.PARKS = [
 ['Acadia', 'ME', -68.21, 44.35, 'Rocky shores meet the Atlantic Ocean here. Cadillac Mountain is one of the first places in the United States to see the sunrise for part of the year.'],
 ['American Samoa', 'AS', -170.68, -14.25, 'This is the only national park south of the equator. It protects coral reefs, rainforests, and fruit bats, which are big bats that eat fruit.'],
@@ -15,7 +15,7 @@ window.PARKS = [
 ['Congaree', 'SC', -80.78, 33.78, 'This park protects one of the tallest old forests in the eastern United States. In early summer, fireflies here blink their lights at the same time.'],
 ['Crater Lake', 'OR', -122.11, 42.94, 'This lake fills the top of an old volcano that collapsed long ago. It is the deepest lake in the United States, and its water is a bright, clear blue.'],
 ['Cuyahoga Valley', 'OH', -81.57, 41.24, 'A river valley with waterfalls, forests, and farms sits between two big cities. Visitors can ride a scenic train through the park.'],
-['Death Valley', 'CA', -116.82, 36.51, 'This is the hottest, driest, and lowest national park. The lowest point in North America is here, 282 feet below sea level.'],
+['Death Valley', 'CA', -116.82, 36.51, 'This is the hottest, driest, and lowest national park. The lowest point in North America is here, 282 feet below sea level.', ['NV']],
 ['Denali', 'AK', -150.50, 63.33, 'Denali is the tallest mountain in North America. Grizzly bears, moose, caribou, and wolves roam the wild land around it.'],
 ['Dry Tortugas', 'FL', -82.87, 24.63, 'This park is about 70 miles out in the ocean past Key West. A huge old brick fort sits on a tiny island surrounded by sea turtles and coral.'],
 ['Everglades', 'FL', -80.90, 25.29, 'This is a giant, slow river of grass and swamp. It is the only place in the world where alligators and crocodiles live side by side.'],
@@ -27,7 +27,7 @@ window.PARKS = [
 ['Grand Teton', 'WY', -110.80, 43.79, 'Jagged mountains rise straight up from a flat valley here. Moose, elk, and bison live near its lakes and rivers.'],
 ['Great Basin', 'NV', -114.26, 38.98, 'Some of the oldest living trees on Earth grow here. These bristlecone pine trees can be more than 4,000 years old.'],
 ['Great Sand Dunes', 'CO', -105.51, 37.73, 'The tallest sand dunes in North America are here, next to snowy mountains. Kids can sled down the dunes and splash in a creek at the bottom.'],
-['Great Smoky Mountains', 'TN', -83.51, 35.61, 'This is the most visited national park in the country. It sits on the border of Tennessee and North Carolina, and its blue haze makes the mountains look smoky.'],
+['Great Smoky Mountains', 'TN', -83.51, 35.61, 'This is the most visited national park in the country. It sits on the border of Tennessee and North Carolina, and its blue haze makes the mountains look smoky.', ['NC']],
 ['Guadalupe Mountains', 'TX', -104.87, 31.92, 'The highest point in Texas is in this park. The mountains are part of an ancient reef that grew in a sea millions of years ago.'],
 ['Haleakala', 'HI', -156.17, 20.72, 'Haleakala is a giant volcano on the island of Maui. People drive to the top before dawn to watch the sunrise above the clouds.'],
 ['Hawaii Volcanoes', 'HI', -155.20, 19.38, 'Two of the most active volcanoes in the world are here. Visitors can sometimes see glowing lava and walk through a lava tube.'],
@@ -60,7 +60,7 @@ window.PARKS = [
 ['White Sands', 'NM', -106.33, 32.78, 'Huge waves of white sand cover this desert. The sand is made of a soft mineral called gypsum, so it stays cool even on hot days.'],
 ['Wind Cave', 'SD', -103.48, 43.57, 'Air blows in and out of this cave like it is breathing. Above ground, bison and prairie dogs roam the grassy prairie.'],
 ['Wrangell-St. Elias', 'AK', -142.00, 61.00, 'This is the largest national park in the United States. It is bigger than the country of Switzerland and has some of the tallest mountains in North America.'],
-['Yellowstone', 'WY', -110.50, 44.60, 'Yellowstone was the first national park in the world, created in 1872. Old Faithful and hundreds of other geysers shoot hot water into the air.'],
+['Yellowstone', 'WY', -110.50, 44.60, 'Yellowstone was the first national park in the world, created in 1872. Old Faithful and hundreds of other geysers shoot hot water into the air.', ['MT', 'ID']],
 ['Yosemite', 'CA', -119.54, 37.85, 'Giant granite cliffs like El Capitan and Half Dome tower over this valley. Yosemite Falls is one of the tallest waterfalls in North America.'],
 ['Zion', 'UT', -113.03, 37.30, 'Towering red and cream cliffs rise above the Virgin River here. Hikers can walk right up the river through a narrow canyon.']
 ];
