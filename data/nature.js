@@ -42,9 +42,9 @@ TO:'Humpback whale|I', TV:'Green sea turtle|I', VU:'Dugong (sea cow)|IRM'
 us: {
 AL:'Black bear|FWMI', AK:'Polar bear|TMF', AZ:'Gila monster|DMF', AR:'White-tailed deer|FMW', CA:'Sea lion|DMFIPWT', CO:'Bighorn sheep|MPDF',
 CT:'Eastern oyster|F', DE:'Horseshoe crab|WP', FL:'Alligator|WIPF', GA:'Gopher tortoise|FMWI', HI:'Hawaiian monk seal|IRM', ID:'Appaloosa horse|MFDP',
-IL:'White-tailed deer|PF', IN:'Hellbender salamander|PF', IA:'Eastern goldfinch|P', KS:'American bison|P', KY:'Gray squirrel|FM', LA:'Brown pelican|WF',
-ME:'Moose|FM', MD:'Blue crab|WF', MA:'Humpback whale|F', MI:'Painted turtle|FW', MN:'Common loon|FWP', MS:'Catfish|FW', MO:'Paddlefish|FP',
-MT:'Grizzly bear|MPF', NE:'Sandhill crane|P', NV:'Desert bighorn sheep|DM', NH:'White-tailed deer|FM', NJ:'Brook trout|FP', NM:'Roadrunner|DM',
+IL:'White-tailed deer|PF', IN:'Hellbender salamander|PF', IA:'Monarch butterfly|P', KS:'American bison|P', KY:'Gray squirrel|FM', LA:'Alligator|WF',
+ME:'Moose|FM', MD:'Blue crab|WF', MA:'Humpback whale|F', MI:'Painted turtle|FW', MN:'Gray wolf|FWP', MS:'Catfish|FW', MO:'Paddlefish|FP',
+MT:'Grizzly bear|MPF', NE:'Sandhill crane|P', NV:'Desert bighorn sheep|DM', NH:'White-tailed deer|FM', NJ:'Brook trout|FP', NM:'Black bear|DM',
 NY:'Beaver|FM', NC:'Eastern box turtle|MFI', ND:'Nokota horse|P', OH:'White-tailed deer|PF', OK:'American bison|P', OR:'Beaver|FMD', PA:'White-tailed deer|FM',
 RI:'Harbor seal|F', SC:'White-tailed deer|FWI', SD:'Coyote|P', TN:'Raccoon|MF', TX:'Armadillo|PDF', UT:'Elk|DM', VT:'Morgan horse|MF', VA:'White-tailed deer|MFW',
 WA:'Orca (killer whale)|MFRD', WV:'Black bear|MF', WI:'Badger|FP', WY:'American bison|MPD'
