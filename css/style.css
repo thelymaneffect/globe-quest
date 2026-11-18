@@ -196,6 +196,7 @@ p.center{text-align:center}
 .support p{color:var(--ink-soft);font-weight:700;font-size:15px;margin:0 0 10px}
 .support-row{display:flex;gap:10px;justify-content:center;flex-wrap:wrap}
 .support-row .btn{flex:0 1 220px}
+.support-row + .small{margin-top:20px}
 .support-btn{background:#ffd84d;color:var(--ink);box-shadow:0 4px 0 var(--gold-dark)}
 .support-msg{background:#fff8e6;border-radius:14px;padding:6px 18px;margin:8px 0 16px;line-height:1.5;font-size:16px}
 .support-msg .signoff{font-weight:800;font-style:italic}
