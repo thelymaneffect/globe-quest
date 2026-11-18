@@ -500,17 +500,54 @@
   $('#setSound').addEventListener('change', (e) => { settings.sound = e.target.checked; saveSettings(); updateSoundBtn(); });
 
   /* ================= START A MODE ================= */
+  /* Getting a map ready takes real work (loading the shapes and measuring every country).
+     It starts quietly while the title screen is showing, a little at a time, so the map opens
+     right away when a player picks a mode. If they pick before it is done, it finishes at full speed. */
+  const prepared = {}; let prepRush = false;
+  function prepareMode(key, rush) {
+    if (rush) prepRush = true;
+    if (prepared[key]) return prepared[key];
+    const Md = MODES[key];
+    prepared[key] = (async () => {
+      await loadAll(Md.scripts);
+      const topo = Md.geo();
+      const feats = topojson.feature(topo, topo.objects[Md.obj]).features;
+      if (key === 'world') { // Tuvalu is too small for the base map — add it as a dot
+        const tv = window.WORLD_META.TV; feats.push({ type: 'Feature', id: 'TV', properties: { n: 'Tuvalu', o: 'TV' }, geometry: { type: 'Point', coordinates: [tv.ll[1], tv.ll[0]] } });
+      }
+      let t = performance.now();
+      for (const f of feats) {
+        GameMap.prepFeature(f);
+        if (!prepRush && performance.now() - t > 12) { await new Promise((r) => setTimeout(r, 0)); t = performance.now(); } // stay out of the way of taps
+      }
+      return { topo, feats };
+    })();
+    prepared[key].catch(() => { delete prepared[key]; }); // offline and not saved yet: try again later
+    return prepared[key];
+  }
+  function warmUp() {
+    if (prepRush || !document.hidden && !$('#title').hidden) {
+      const first = store.get(SAVE_KEY('us')) && !store.get(SAVE_KEY('world')) ? 'us' : 'world';
+      prepareMode(first).then(() => prepareMode(first === 'us' ? 'world' : 'us')).catch(() => {});
+    }
+  }
+
+  function syncHud() {
+    const h = $('#hud').getBoundingClientRect().height; if (!h) return;
+    document.documentElement.style.setProperty('--hud-h', Math.ceil(h) + 'px');
+    if (map) { const r = $('#map').getBoundingClientRect(); if (r.width && (Math.abs(r.height - map.h) > 1 || Math.abs(r.width - map.w) > 1)) map.resize(); }
+  }
+
   async function startMode(key, saved, explore = false) {
     M = MODES[key]; clearPins();
     $('#explore').hidden = true; $('#title').hidden = true; $('#hud').hidden = false; $('#mapwrap').hidden = false; $('#installBtn').hidden = true; $('#offlineBadge').hidden = true;
-    banner('Loading the map…');
-    try { await loadAll(explore ? [...M.scripts, 'data/place-info.js'] : M.scripts); } catch (e) { banner('Sorry — the map could not load. Please refresh.'); return; }
-    const topo = M.geo();
-    const fc = topojson.feature(topo, topo.objects[M.obj]);
-    const feats = fc.features;
-    if (key === 'world') { // Tuvalu is too small for the base map — add it as a dot
-      const tv = window.WORLD_META.TV; feats.push({ type: 'Feature', id: 'TV', properties: { n: 'Tuvalu', o: 'TV' }, geometry: { type: 'Point', coordinates: [tv.ll[1], tv.ll[0]] } });
-    }
+    banner('🌍 Getting the map ready…');
+    let topo, feats;
+    try {
+      await new Promise((r) => setTimeout(r, 30)); // let the message show first
+      if (explore) await loadScript('data/place-info.js');
+      ({ topo, feats } = await prepareMode(key, true));
+    } catch (e) { banner('Sorry — the map could not load. Please refresh.'); return; }
     regions = [...new Set(feats.map((f) => f.properties.o).filter(Boolean))].filter((c) => info(c));
     regions.sort((a, b) => nameOf(a).localeCompare(nameOf(b)));
 
@@ -545,7 +582,7 @@
     // make sure save matches the current map
     for (const r of regions) if (!S.own[r]) S.own[r] = r;
     save();
-    buildSearch(); refresh();
+    buildSearch(); refresh(); syncHud();
     banner(null);
     loadAll(DETAIL_SCRIPTS).then(() => {
       let rivers = window.RIVERS, features = window.GEOFEATURES;
@@ -633,7 +670,7 @@
     }
   }
 
-  function refresh() {
+  function refresh() { queueMicrotask(syncHud);
     computeLabelPlan();
     map.highlight = new Set(S.player ? regionsOf(S.player) : []);
     map.invalidateBorders(); map.draw();
@@ -1368,4 +1405,8 @@
   /* ================= BOOT ================= */
   if ('speechSynthesis' in window) speechSynthesis.getVoices();
   showTitle();
+  // the map always starts right under the top bar, even when the bar wraps onto two lines
+  if (window.ResizeObserver) new ResizeObserver(syncHud).observe($('#hud'));
+  window.addEventListener('resize', syncHud);
+  setTimeout(warmUp, 400); // start getting the maps ready right after the title screen appears
 })();

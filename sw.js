@@ -1,7 +1,7 @@
 /* Lyman Learning: Globe Quest — offline / airplane-mode support (service worker).
    On install it saves EVERY file the game needs (listed in js/offline-files.js), so the game
-   plays with no internet at all. After that, files are served from the saved copy first and
-   quietly refreshed in the background whenever the internet is available. */
+   plays with no internet at all. After that, files are served from the saved copy. When a new
+   version is published (a new version name in offline-files.js), all of it is saved at once and swapped in. */
 importScripts('js/offline-files.js');
 const { version: VERSION, files: FILES } = self.LYMAN_OFFLINE;
 
@@ -30,8 +30,10 @@ self.addEventListener('fetch', (e) => {
   e.respondWith((async () => {
     const c = await caches.open(VERSION);
     const hit = await c.match(req, { ignoreSearch: true });
-    const fresh = fetch(req).then((res) => { if (res && res.ok) c.put(req, res.clone()); return res; }).catch(() => null);
-    if (hit) { e.waitUntil(fresh); return hit; }
-    return (await fresh) || (req.mode === 'navigate' ? c.match('index.html') : Response.error());
+    // Saved files are always used as they are, so every file comes from the same version of the game
+    // (a new version arrives all at once when sw.js changes). Mixing old and new files caused layout glitches.
+    if (hit) return hit;
+    const fresh = await fetch(req).then((res) => { if (res && res.ok) c.put(req, res.clone()); return res; }).catch(() => null);
+    return fresh || (req.mode === 'navigate' ? c.match('index.html') : Response.error());
   })());
 });

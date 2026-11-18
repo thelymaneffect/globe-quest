@@ -67,7 +67,20 @@
     return d3.geoCentroid(largestPolygon(f));
   }
 
+  // The slow math for one country or state (size, center, simpler copies for the globe).
+  // game.js runs this a little at a time while the title screen is showing, so the map opens fast.
+  function prepFeature(f) {
+    if (f._prep) return; f._prep = true;
+    f.o = f.properties.o; f.nm = f.properties.n;
+    f.area = f.geometry.type === 'Point' ? 0 : d3.geoArea(f);
+    f.bounds = d3.geoBounds(f);
+    f.lp = largestPolygonCentroid(f); f.mainPoly = largestPolygon(f);
+    f.lite = liteFeature(f); f.mid = liteFeature(f, 0.45); // simpler copies for the globe
+  }
+
   class GameMap {
+    static prepFeature(f) { prepFeature(f); }
+
     constructor(canvas) {
       this.canvas = canvas; this.ctx = canvas.getContext('2d');
       this.view = '2d'; this.t = d3.zoomIdentity; this.rot = [0, -10]; this.k3 = 1;
@@ -83,6 +96,8 @@
       canvas.addEventListener('mousemove', (e) => this._move(e));
       canvas.addEventListener('mouseleave', () => { this.hover = null; this.onHover && this.onHover(null); this.draw(); });
       window.addEventListener('resize', () => this.resize());
+      // also redraw when the map area itself changes size (for example when the top bar gets taller)
+      if (window.ResizeObserver) new ResizeObserver(() => { const r = canvas.getBoundingClientRect(); if (this.mode && r.width && (Math.abs(r.width - this.w) > 1 || Math.abs(r.height - this.h) > 1)) this.resize(); }).observe(canvas);
       this._raf = null;
     }
 
@@ -90,11 +105,7 @@
       this.mode = mode; this.features = features; this.topo = topo; this.objName = objName;
       this.byRegion = new Map();
       for (const f of features) {
-        f.o = f.properties.o; f.nm = f.properties.n;
-        f.area = f.geometry.type === 'Point' ? 0 : d3.geoArea(f);
-        f.bounds = d3.geoBounds(f);
-        f.lp = largestPolygonCentroid(f); f.mainPoly = largestPolygon(f);
-        f.lite = liteFeature(f); f.mid = liteFeature(f, 0.45); // simpler copies for the globe
+        prepFeature(f); // usually already done in the background while the title screen was showing
         if (f.o) { if (!this.byRegion.has(f.o)) this.byRegion.set(f.o, []); this.byRegion.get(f.o).push(f); }
       }
       this.sphere = { type: 'Sphere' };
@@ -144,9 +155,17 @@
     // the flat map can only be dragged as far as the map's own edges (never off into empty space)
     _extent2d() {
       if (!this.p2) return [[0, 0], [this.w, this.h]];
-      const path = d3.geoPath(this.p2);
       // stop at the land itself (not the empty ocean above the Arctic), so zooming in can never get lost in blue
-      if (!this._landBox) this._landBox = path.bounds({ type: 'FeatureCollection', features: this.features });
+      if (!this._landBox) {
+        // measured once per map at scale 1 (slow), then just stretched to the screen size (instant)
+        const fs = this.features, s = this.p2.scale(), [tx, ty] = this.p2.translate();
+        if (!fs._unitBox) {
+          const [[a, b], [c, d]] = d3.geoPath(this.p2).bounds({ type: 'FeatureCollection', features: fs });
+          fs._unitBox = [[(a - tx) / s, (b - ty) / s], [(c - tx) / s, (d - ty) / s]];
+        }
+        const u = fs._unitBox;
+        this._landBox = [[tx + u[0][0] * s, ty + u[0][1] * s], [tx + u[1][0] * s, ty + u[1][1] * s]];
+      }
       const [[x0, y0], [x1, y1]] = this._landBox;
       return [[x0 - 4, y0 - 4], [x1 + 4, y1 + 4]];
     }

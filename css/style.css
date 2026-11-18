@@ -62,7 +62,7 @@ h1 span{display:block;font-size:.72em;font-weight:500;color:var(--blue);margin-t
 .icon-btn{background:rgba(255,255,255,.12);border:none;color:#fff;border-radius:999px;padding:8px 12px;font-weight:800;font-size:14px;white-space:nowrap}
 
 /* ---------- MAP ---------- */
-#mapwrap{position:fixed;top:60px;left:0;right:0;bottom:0;background:var(--ocean)}
+#mapwrap{position:fixed;top:var(--hud-h,60px);left:0;right:0;bottom:0;background:var(--ocean)}
 #map{display:block;width:100%;height:100%;touch-action:none;cursor:grab}
 #map:active{cursor:grabbing}
 #banner{position:absolute;top:12px;left:50%;transform:translateX(-50%);background:var(--ink);color:#fff;font-family:var(--head);font-weight:600;font-size:18px;padding:10px 22px;border-radius:999px;box-shadow:var(--shadow);z-index:5;text-align:center;max-width:calc(100% - 32px)}
@@ -165,7 +165,7 @@ p.center{text-align:center}
 }
 @media (max-width:640px){
   #hud{height:auto;min-height:60px;flex-wrap:wrap;padding:6px 10px;gap:6px}
-  #mapwrap{top:104px}
+  #mapwrap{top:var(--hud-h,104px)}
   .hud-status{order:3;flex-basis:100%}
   .hud-actions{margin-left:auto}
   .search input{width:150px}
@@ -262,7 +262,7 @@ p.center{text-align:center}
 /* Lyman Learning logo */
 .brand-logo{display:block;width:min(300px,64vw);height:auto;margin:0 auto 12px}
 .hud-brand{display:flex;align-items:center;gap:8px}
-.hud-logo{height:40px;width:auto;display:block}
+.hud-logo{height:40px;width:auto;max-width:120px;display:block}
 .hud-heart{height:32px;width:auto;display:none}
 @media (max-width:900px){.hud-logo{display:none}.hud-heart{display:block}}
 
