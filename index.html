@@ -50,6 +50,13 @@
       </div>
     </div>
 
+    <h2 class="pick-label">Just explore</h2>
+    <button class="explore-card" id="openExplore">
+      <span class="mode-emoji">🔭</span>
+      <span><span class="mode-name">Explore the World</span>
+      <span class="mode-desc">No game, just discovery: types of maps, famous places, and every country and state.</span></span>
+    </button>
+
     <div id="levelPick" class="level-pick"></div>
     <div id="stakesPick" class="level-pick"></div>
     <div class="settings-row">
@@ -74,6 +81,30 @@
   </div>
 </section>
 
+<!-- ===== EXPLORE PAGE ===== -->
+<section id="explore" class="screen" hidden>
+  <div class="title-inner explore-inner">
+    <button class="back-btn" id="exploreBack">← Back</button>
+    <img class="brand-logo" src="icons/lyman-learning-logo.png" width="1000" height="376" alt="Lyman Learning">
+    <h1>Explore the World</h1>
+    <p class="tagline">Zoom in anywhere. Famous places pop up with pictures, and you can tap any country or state to learn about it.</p>
+    <div class="explore-go">
+      <button class="btn gold" data-explore="world">🌍 Explore the world map</button>
+      <button class="btn primary" data-explore="us">🇺🇸 Explore the USA map</button>
+    </div>
+
+    <h2 class="maps-head">Types of Maps</h2>
+    <p class="maps-lead">The Earth is round, but paper and screens are flat. Every flat map has to stretch or squish the world a little, so mapmakers choose what to keep correct. Look for <b class="key-gl">Greenland</b> and <b class="key-af">Africa</b> on each map and see how their sizes change!</p>
+    <div class="map-types" id="mapTypes"></div>
+    <div class="didyou maps-fact"><b>💡 Did you know?</b><span>Africa is about <b>14 times bigger</b> than Greenland. Greenland is about 2.2 million square kilometers, and Africa is about 30 million. On the Mercator map they look almost the same size!</span></div>
+
+    <div class="explore-go">
+      <button class="btn gold" data-explore="world">🌍 Explore the world map</button>
+      <button class="btn primary" data-explore="us">🇺🇸 Explore the USA map</button>
+    </div>
+  </div>
+</section>
+
 <!-- ===== GAME ===== -->
 <header id="hud" hidden>
   <button class="hud-brand" id="btnMenu" aria-label="Menu">☰ <img class="hud-logo" src="icons/lyman-learning-logo-light.png" width="1000" height="376" alt="Lyman Learning"><img class="hud-heart" src="icons/heart-96.png" width="96" height="96" alt=""></button>
@@ -89,6 +120,7 @@
 
 <main id="mapwrap" hidden>
   <canvas id="map"></canvas>
+  <div id="pins" class="pins" hidden></div>
   <div id="banner" hidden></div>
   <div id="tooltip" hidden></div>
   <div class="search">

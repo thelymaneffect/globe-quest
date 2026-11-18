@@ -265,3 +265,38 @@ p.center{text-align:center}
 .hud-logo{height:40px;width:auto;display:block}
 .hud-heart{height:32px;width:auto;display:none}
 @media (max-width:900px){.hud-logo{display:none}.hud-heart{display:block}}
+
+/* ---------- EXPLORE ---------- */
+.explore-card{width:100%;margin-top:4px;background:var(--card);border:3px solid var(--line);border-radius:var(--radius);padding:18px 22px;display:flex;align-items:center;gap:18px;text-align:left;box-shadow:var(--shadow);transition:transform .15s,border-color .15s}
+.explore-card:hover{transform:translateY(-4px);border-color:var(--gold)}
+.explore-card .mode-name,.explore-card .mode-desc{display:block}
+.explore-inner{max-width:1040px}
+.back-btn{position:sticky;top:10px;float:left;z-index:2;font-family:var(--head);font-weight:600;font-size:16px;background:var(--card);border:2px solid var(--line);border-radius:999px;padding:8px 16px;box-shadow:0 2px 0 rgba(0,0,0,.08)}
+.explore-go{display:flex;flex-wrap:wrap;gap:12px;justify-content:center;margin:10px 0 6px}
+.explore-go .btn{font-size:18px;padding:14px 24px}
+.maps-head{font-family:var(--head);font-weight:700;font-size:clamp(26px,4vw,36px);margin:40px 0 6px}
+.maps-lead{color:var(--ink-soft);font-size:17px;max-width:720px;margin:0 auto 22px}
+.key-gl{color:#fff;background:#8d6cab;border-radius:6px;padding:0 6px}
+.key-af{color:#fff;background:#d18a24;border-radius:6px;padding:0 6px}
+.map-types{display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,300px),1fr));gap:18px;text-align:left}
+.map-type{margin:0;background:var(--card);border:2px solid var(--line);border-radius:var(--radius);padding:12px;box-shadow:0 4px 14px rgba(20,35,60,.08);display:flex;flex-direction:column}
+.map-type canvas{width:100%;display:block;margin:0 auto}
+.map-type figcaption{font-size:15px;line-height:1.5;color:var(--ink-soft);margin-top:10px}
+.map-type figcaption > b:first-child{display:block;font-family:var(--head);font-weight:600;font-size:19px;color:var(--ink);margin-bottom:2px}
+.maps-fact{max-width:720px;margin:22px auto 18px;text-align:left}
+
+/* famous-place pins on the map */
+.pins{position:absolute;inset:0;pointer-events:none;overflow:hidden}
+.pin{position:absolute;left:0;top:0;pointer-events:auto;display:flex;flex-direction:column;align-items:center;width:80px;margin-left:-40px;padding:3px 3px 4px;background:#fff;border:none;border-radius:10px;box-shadow:0 3px 10px rgba(20,35,60,.3);translate:0 calc(-100% - 8px);transition:width .15s}
+.pin::after{content:'';position:absolute;left:50%;bottom:-7px;margin-left:-7px;border:7px solid transparent;border-bottom:none;border-top-color:#fff}
+.pin img{width:100%;height:46px;object-fit:cover;border-radius:7px;display:block}
+.pin-noimg{font-size:22px;line-height:30px}
+.pin-name{font-size:10.5px;font-weight:800;line-height:1.15;margin-top:3px;color:var(--ink);display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden}
+.pin.big{width:116px;margin-left:-58px}
+.pin.big img{height:70px}
+.pin.big .pin-name{font-size:12px}
+.pin:hover{z-index:2;box-shadow:0 4px 14px rgba(20,35,60,.45)}
+.place-photo{width:100%;max-height:260px;object-fit:cover;border-radius:14px;display:block;margin-bottom:10px}
+.place-about{font-size:16px;line-height:1.55;text-align:center;margin:8px 4px 4px}
+
+.pins{z-index:2}

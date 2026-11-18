@@ -137,7 +137,7 @@
         this.center3 = [-10, -20];
       }
       this.base3 = Math.min(this.w, this.h) / 2 - 18;
-      this._pc = new WeakMap(); this._svg = d3.geoPath(this.p2); // saved flat-map shapes (reset when the map is resized)
+      this._pc = new WeakMap(); this._svg = d3.geoPath(this.p2); this._landBox = null; // saved flat-map shapes (reset when the map is resized)
       this.p3 = d3.geoOrthographic().clipAngle(90).precision(0.4).translate([this.w / 2, this.h / 2]);
     }
 
@@ -145,8 +145,10 @@
     _extent2d() {
       if (!this.p2) return [[0, 0], [this.w, this.h]];
       const path = d3.geoPath(this.p2);
-      const [[x0, y0], [x1, y1]] = this.mode === 'us' ? path.bounds({ type: 'FeatureCollection', features: this.features }) : path.bounds(this.sphere);
-      return [[Math.min(x0 - 10, 0), Math.min(y0 - 10, 0)], [Math.max(x1 + 10, this.w), Math.max(y1 + 10, this.h)]];
+      // stop at the land itself (not the empty ocean above the Arctic), so zooming in can never get lost in blue
+      if (!this._landBox) this._landBox = path.bounds({ type: 'FeatureCollection', features: this.features });
+      const [[x0, y0], [x1, y1]] = this._landBox;
+      return [[x0 - 4, y0 - 4], [x1 + 4, y1 + 4]];
     }
 
     setView(v) {
@@ -179,12 +181,19 @@
       const t = e.transform;
       if (this.view === '2d') { this.t = t; }
       else {
-        if (!this._suppress && this._last) {
+        // a zoom (wheel or pinch) also shifts the transform; only a real drag (same zoom) turns the globe
+        if (!this._suppress && this._last && Math.abs(t.k - this.k3) < 1e-9) {
           const dx = t.x - this._last.x, dy = t.y - this._last.y;
           const s = 0.25 / this.k3 * (this.base3 > 0 ? 400 / this.base3 : 1);
           this.rot = [this.rot[0] + dx * s, Math.max(-85, Math.min(85, this.rot[1] - dy * s))];
         }
         this._last = { x: t.x, y: t.y }; this.k3 = t.k;
+        // when zoomed in, never let the view drift past the northernmost land into empty Arctic ocean
+        if (this.mode !== 'us' && !this._suppress) {
+          const halfDeg = (this.h / 2) / (this.base3 * this.k3) * 180 / Math.PI;
+          const maxN = Math.min(85, 76 + halfDeg);
+          if (-this.rot[1] > maxN) this.rot = [this.rot[0], -maxN];
+        }
       }
       this.onZoom && this.onZoom(this.effZoom());
       this.draw();

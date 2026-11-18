@@ -368,6 +368,113 @@
       $('#mNew').onclick = () => { closeModal(); store.del(SAVE_KEY(k)); startMode(k, null); };
     } else startMode(k, null);
   }));
+  /* ================= EXPLORE THE WORLD (no game) ================= */
+  // Types of Maps: each little map is drawn live from the world data, so it works offline.
+  const MAP_TYPES = [
+    { name: 'Mercator map', make: () => d3.geoMercator(), clipLat: 80,
+      text: 'Keeps <b>angles and shapes</b> correct, so a straight line on this map is a steady compass direction. Sailors have used it to <b>navigate</b> for over 450 years, and phone maps use it too. But it stretches places near the poles. Greenland looks as big as Africa!' },
+    { name: 'Equal-area map', make: () => d3.geoEqualEarth(),
+      text: 'Shows every country at its <b>true size</b> compared to the others. Look how small Greenland really is next to Africa! Shapes get a little squished, but the sizes are fair, so it is great for <b>comparing sizes</b>.' },
+    { name: 'Compromise map', make: () => d3.geoNaturalEarth1(),
+      text: '<b>Balances size and shape</b>, so nothing looks too stretched or too squished. Nothing is perfect, but everything is close. Atlases and wall maps often use this kind, and it is the <b>2D Map</b> in Globe Quest.' },
+    { name: 'Grid map (equirectangular)', make: () => d3.geoEquirectangular(),
+      text: 'The lines of <b>latitude and longitude</b> make perfect squares. It is the simplest world map to make, so computers use it for <b>satellite pictures and weather maps</b>. Places near the poles get stretched sideways.' },
+    { name: 'Globe view (orthographic)', make: () => d3.geoOrthographic().rotate([-20, -10]),
+      text: 'Shows Earth the way it looks <b>from space</b>. Shapes and sizes are right near the middle, but you can only see <b>half of the world</b> at a time. This is the <b>3D Globe</b> in Globe Quest.' },
+    { name: 'Polar map (azimuthal equidistant)', make: () => d3.geoAzimuthalEquidistant().rotate([0, -90]).clipAngle(150),
+      text: 'Looks straight down on the <b>North Pole</b>. <b>Distances and directions from the center</b> are correct, so pilots use maps like this to plan flights over the Arctic. The <b>United Nations flag</b> uses one.' }
+  ];
+  const isAfrica = (id) => ((window.WORLD_META || {})[id] || {}).region === 'Africa';
+  function drawMapType(canvas, T, land) {
+    const w = canvas.clientWidth || 300, dpr = Math.min(window.devicePixelRatio || 1, 2);
+    const p = T.make(); let h, frame;
+    if (T.clipLat) { // Mercator never reaches the poles, so show it from 84°N to 80°S
+      p.scale((w - 8) / (2 * Math.PI)).translate([w / 2, 0]);
+      const top = p([0, 84])[1], bot = p([0, -T.clipLat])[1];
+      p.translate([w / 2, 4 - top]); h = Math.ceil(bot - top + 8);
+      frame = (ctx) => ctx.rect(4, 4, w - 8, h - 8);
+    } else {
+      p.fitWidth(w - 8, { type: 'Sphere' });
+      const [[, y0], [, y1]] = d3.geoPath(p).bounds({ type: 'Sphere' });
+      h = Math.ceil(y1 - y0 + 8); p.translate([p.translate()[0] + 4, p.translate()[1] - y0 + 4]);
+      frame = (ctx, path) => path({ type: 'Sphere' });
+    }
+    canvas.width = w * dpr; canvas.height = h * dpr; canvas.style.height = h + 'px';
+    const ctx = canvas.getContext('2d'); ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+    const path = d3.geoPath(p, ctx);
+    ctx.save();
+    ctx.beginPath(); frame(ctx, path); ctx.fillStyle = '#cfe6f5'; ctx.fill(); ctx.clip();
+    ctx.beginPath(); path(d3.geoGraticule10()); ctx.strokeStyle = 'rgba(29,42,58,.13)'; ctx.lineWidth = 0.7; ctx.stroke();
+    for (const f of land) {
+      ctx.beginPath(); path(f);
+      ctx.fillStyle = f.id === 'GL' ? '#8d6cab' : isAfrica(f.id) ? '#e09f3e' : '#efe7d6'; ctx.fill();
+      ctx.strokeStyle = 'rgba(29,42,58,.25)'; ctx.lineWidth = 0.4; ctx.stroke();
+    }
+    ctx.restore();
+    ctx.beginPath(); frame(ctx, path); ctx.strokeStyle = '#1d2a3a'; ctx.lineWidth = 1.2; ctx.stroke();
+  }
+  async function showExplore() {
+    $('#title').hidden = true; $('#hud').hidden = true; $('#mapwrap').hidden = true; $('#explore').hidden = false; $('#explore').scrollTop = 0;
+    $('#installBtn').hidden = true; $('#offlineBadge').hidden = true;
+    const box = $('#mapTypes');
+    if (!box.dataset.done) {
+      box.innerHTML = MAP_TYPES.map((T, i) => `<figure class="map-type"><canvas data-i="${i}" aria-label="${esc(T.name)}"></canvas><figcaption><b>${esc(T.name)}</b>${T.text}</figcaption></figure>`).join('');
+      try { await loadAll(['data/world.js', 'data/world-meta.js']); } catch (e) { return; }
+      const land = topojson.feature(window.GEO_WORLD, window.GEO_WORLD.objects.countries).features;
+      const drawAll = () => box.querySelectorAll('canvas').forEach((c) => drawMapType(c, MAP_TYPES[+c.dataset.i], land));
+      requestAnimationFrame(drawAll);
+      let rt = null; window.addEventListener('resize', () => { clearTimeout(rt); rt = setTimeout(() => { if (!$('#explore').hidden) drawAll(); }, 200); });
+      box.dataset.done = '1';
+    }
+  }
+  $('#openExplore').onclick = () => { sfx.click(); showExplore(); };
+  $('#exploreBack').onclick = () => { sfx.click(); $('#explore').hidden = true; showTitle(); };
+  document.querySelectorAll('[data-explore]').forEach((b) => b.onclick = () => { sfx.click(); $('#explore').hidden = true; startMode(b.dataset.explore, null, true); });
+  const exploring = () => !!(S && S.phase === 'explore');
+
+  // Famous-place pins: a photo and a name sitting on the spot, shown once you zoom in
+  const pinEls = new Map();
+  function placeKey(c) { return (M.key === 'us' ? 'us:' : 'w:') + c; }
+  function updatePins() {
+    const layer = $('#pins');
+    if (!exploring() || !window.PLACE_INFO) { layer.hidden = true; return; }
+    layer.hidden = false;
+    const z = map.effZoom(), show = z >= (M.key === 'us' ? 4.5 : 1.8);
+    const big = z >= (M.key === 'us' ? 9 : 5);
+    const placed = [];
+    for (const c of regions) {
+      const k = placeKey(c), P = window.PLACE_INFO[k]; if (!P) continue;
+      let el = pinEls.get(k);
+      const xy = show ? map._toScreen([P[0], P[1]]) : null;
+      if (!xy || xy[0] < -60 || xy[1] < -60 || xy[0] > map.w + 60 || xy[1] > map.h + 60) { if (el) el.hidden = true; continue; }
+      const wBox = big ? 120 : 84, hBox = big ? 110 : 78;
+      const box = [xy[0] - wBox / 2, xy[1] - hBox, xy[0] + wBox / 2, xy[1]];
+      if (placed.some((b) => box[0] < b[2] && box[2] > b[0] && box[1] < b[3] && box[3] > b[1])) { if (el) el.hidden = true; continue; }
+      placed.push(box);
+      if (!el) {
+        el = document.createElement('button'); el.className = 'pin';
+        const f = window.PLACE_PICS && window.PLACE_PICS[k];
+        const name = extra(c)[0] || '';
+        el.innerHTML = (f ? `<img src="${f}" alt="" loading="lazy">` : '<span class="pin-noimg">📍</span>') + `<span class="pin-name">${esc(name)}</span>`;
+        el.onclick = (e) => { e.stopPropagation(); showPlace(c); };
+        layer.appendChild(el); pinEls.set(k, el);
+      }
+      el.hidden = false; el.classList.toggle('big', big);
+      el.style.transform = `translate(${Math.round(xy[0])}px, ${Math.round(xy[1])}px)`;
+    }
+  }
+  function clearPins() { pinEls.forEach((el) => el.remove()); pinEls.clear(); $('#pins').hidden = true; }
+  function showPlace(c) {
+    const k = placeKey(c), P = window.PLACE_INFO[k], f = window.PLACE_PICS && window.PLACE_PICS[k];
+    sfx.click();
+    openModal(`${f ? `<img class="place-photo" src="${f}" alt="${esc(extra(c)[0])}">` : ''}
+      <h3 class="mtitle">${esc(extra(c)[0])}</h3>
+      <p class="center small" style="margin-top:-4px">📍 In ${esc(nameOf(c))}</p>
+      <p class="place-about">${esc(P[2])}</p>
+      <div class="btn-row"><button class="btn ghost" id="plCard">About ${esc(shortName(c))}</button><button class="btn gold" data-close>Keep exploring</button></div>`);
+    $('#plCard').onclick = () => { closeModal(); onRegionClick(c, null); };
+  }
+
   /* Game style. Ages are guidelines: most kids can handle a small loss somewhere around 6–8,
      and kids with ADHD are often 2–3 years behind in self-regulation (Barkley's ~30% rule of thumb). */
   const STAKES = {
@@ -393,11 +500,11 @@
   $('#setSound').addEventListener('change', (e) => { settings.sound = e.target.checked; saveSettings(); updateSoundBtn(); });
 
   /* ================= START A MODE ================= */
-  async function startMode(key, saved) {
-    M = MODES[key];
-    $('#title').hidden = true; $('#hud').hidden = false; $('#mapwrap').hidden = false; $('#installBtn').hidden = true; $('#offlineBadge').hidden = true;
+  async function startMode(key, saved, explore = false) {
+    M = MODES[key]; clearPins();
+    $('#explore').hidden = true; $('#title').hidden = true; $('#hud').hidden = false; $('#mapwrap').hidden = false; $('#installBtn').hidden = true; $('#offlineBadge').hidden = true;
     banner('Loading the map…');
-    try { await loadAll(M.scripts); } catch (e) { banner('Sorry — the map could not load. Please refresh.'); return; }
+    try { await loadAll(explore ? [...M.scripts, 'data/place-info.js'] : M.scripts); } catch (e) { banner('Sorry — the map could not load. Please refresh.'); return; }
     const topo = M.geo();
     const fc = topojson.feature(topo, topo.objects[M.obj]);
     const feats = fc.features;
@@ -420,7 +527,7 @@
     map.labelPlan = (r) => labelPlan[r] || null;
     map.labelShort = (r) => (M.key === 'us' ? r : null); // postal code when a state's full name won't fit
     buildNeighbors(topo);
-    map.onRender = updateCompass;
+    map.onRender = () => { updateCompass(); updatePins(); };
     map.view = settings.view;
     map.setMode(key, feats, topo, M.obj);
     if (key === 'us' && window.GEO_WORLD) { // show the rest of the world around the USA (gray, not playable)
@@ -434,7 +541,7 @@
     setViewButtons();
     assignAIColors(topo);
 
-    S = saved || { v: 1, mode: key, phase: 'pick', player: null, color: null, own: Object.fromEntries(regions.map((r) => [r, r])), lives: 0, battles: 0, wins: 0, visited: [], conquered: [], startedAs: null, factIdx: {}, lastBeatBy: null, log: [] };
+    S = explore ? { v: 1, mode: key, phase: 'explore', player: null, color: null, own: Object.fromEntries(regions.map((r) => [r, r])), visited: [], factIdx: {}, log: [] } : saved || { v: 1, mode: key, phase: 'pick', player: null, color: null, own: Object.fromEntries(regions.map((r) => [r, r])), lives: 0, battles: 0, wins: 0, visited: [], conquered: [], startedAs: null, factIdx: {}, lastBeatBy: null, log: [] };
     // make sure save matches the current map
     for (const r of regions) if (!S.own[r]) S.own[r] = r;
     save();
@@ -457,7 +564,9 @@
       map.detail = { places: stars, cities, rivers, lakes: window.LAKES, features };
       map.draw();
     }).catch(() => { /* details are optional */ });
-    if (S.phase === 'pick') introPick();
+    $('#btnPassport').hidden = explore; $('#zHere').hidden = explore;
+    if (explore) banner(`🔭 Zoom in to see famous places. Tap a picture or any ${M.unit} to learn about it!`, 6000);
+    else if (S.phase === 'pick') introPick();
     else if (S.phase === 'respawn') respawnPrompt();
     else if (S.phase === 'won') showWin();
     else if (S.phase === 'lost') showGameOver();
@@ -477,7 +586,7 @@
     for (const r of regions) if (!colorAI[r]) colorAI[r] = AI_COLORS[r.charCodeAt(0) % AI_COLORS.length];
   }
 
-  function save() { if (S && M) store.set(SAVE_KEY(M.key), S); }
+  function save() { if (S && M && S.phase !== 'explore') store.set(SAVE_KEY(M.key), S); }
 
   /* ================= HUD / LEGEND ================= */
   /* ---------- map labels after conquests ----------
@@ -532,7 +641,8 @@
     if (S.player && (S.phase === 'play' || S.phase === 'won')) {
       const n = regionsOf(S.player).length, pct = Math.round(n / regions.length * 100);
       hs.innerHTML = `<img class="flag" src="${M.flag(S.player)}" alt=""><span class="meta">${esc(nameOf(S.player))} — ${n} / ${regions.length} ${M.units} • 💪 ${S.comebacks || 0} ${S.comebacks === 1 ? 'comeback' : 'comebacks'}</span><span class="bar"><i style="width:${pct}%"></i></span>`;
-    } else if (S.phase === 'pick') hs.innerHTML = `<span class="meta">${M.title}: choose your ${M.unit}</span>`;
+    } else if (S.phase === 'explore') hs.innerHTML = `<span class="meta">🔭 Exploring ${M.key === 'us' ? 'the USA' : 'the world'}</span>`;
+    else if (S.phase === 'pick') hs.innerHTML = `<span class="meta">${M.title}: choose your ${M.unit}</span>`;
     else if (S.phase === 'respawn') hs.innerHTML = `<span class="meta">Choose a new ${M.unit} to play as</span>`;
     else hs.innerHTML = '';
     renderLegend();
@@ -544,7 +654,8 @@
     let html = `<h4>Map key <button id="lgToggle" aria-label="Show or hide key">${settings.legendOpen ? '▾' : '▸'}</button></h4><div class="body">`;
     if (S.player) html += `<div class="row"><span class="sw" style="background:${S.color};box-shadow:0 0 0 2px #fff inset"></span>You (${esc(nameOf(S.player))})</div>`;
     for (const [e, n] of top) html += `<div class="row"><span class="sw" style="background:${empireColor(e)}"></span>${esc(nameOf(e))}’s empire (${n})</div>`;
-    html += `<div class="row"><span class="sw" style="background:repeating-linear-gradient(45deg,#f6d7a7 0 4px,#cfe3b5 4px 8px,#c9d8ef 8px 12px)"></span>Free ${M.units}</div>`;
+    html += `<div class="row"><span class="sw" style="background:repeating-linear-gradient(45deg,#f6d7a7 0 4px,#cfe3b5 4px 8px,#c9d8ef 8px 12px)"></span>${exploring() ? M.units[0].toUpperCase() + M.units.slice(1) : 'Free ' + M.units}</div>`;
+    if (exploring()) html += `<div class="row"><span class="sym">📷</span>Famous place (zoom in)</div>`;
     html += `<div class="row"><span class="sym" style="color:#d62828">★</span>Capital city</div><div class="row"><span class="sym">●</span>Major city</div>
       <div class="row"><span class="sym" style="color:#4f97cf">〰</span>River</div><div class="row"><span class="sym" style="color:#7a5230">▲</span>Mountains</div></div>`;
     lg.innerHTML = html; lg.classList.toggle('collapsed', !settings.legendOpen);
@@ -606,6 +717,12 @@
   $('#btnMenu').onclick = () => { sfx.click(); showMenu(); };
 
   function showMenu() {
+    if (exploring()) {
+      openModal(`<h3 class="mtitle">Menu</h3><div class="btn-row" style="flex-direction:column"><button class="btn gold" data-close>🔭 Keep exploring</button><button class="btn ghost" id="mnTypes">🗺️ Types of Maps</button><button class="btn ghost" id="mnHome">🏠 Main menu</button></div>`);
+      $('#mnTypes').onclick = () => { closeModal(); clearPins(); showExplore(); };
+      $('#mnHome').onclick = () => { closeModal(); clearPins(); showTitle(); };
+      return;
+    }
     openModal(`<h3 class="mtitle">Menu</h3>
       <div class="btn-row" style="flex-direction:column">
         <button class="btn gold" data-close>▶ Keep playing</button>
@@ -697,7 +814,7 @@
         else parts.push(`${h.ns} Hemisphere · crosses the Prime Meridian`);
       }
     }
-    if (S && S.player && S.player !== r) { const d = directionFrom(S.player, r, false); if (d) parts.push(`${d} of ${esc(nameOf(S.player))}`); }
+    if (S && S.player && S.player !== r) { const d = directionFrom(S.player, r, false); if (d) parts.push(`${d} of ${esc(nameOf(S.player))}${acrossPacific(S.player, r) ? ' (across the Pacific Ocean)' : ''}`); }
     if (!parts.length) return '';
     return world ? parts.join(' · ') : ` · ${parts.join(' · ')}`;
   }
@@ -815,9 +932,17 @@
     return { ns, ew };
   }
   const DIRS = ['north', 'northeast', 'east', 'southeast', 'south', 'southwest', 'west', 'northwest'];
-  // direction on the flat map from place a to place b; null if it's too close to call
+  // The shortest trip from a to b crosses the Pacific Ocean (off the edge of the flat map),
+  // so it goes the opposite east/west way from what a child sees on the flat map (USA to Korea: west, not east).
+  function acrossPacific(a, b) {
+    const fa = mainFeature(a), fb = mainFeature(b); if (!fa || !fb) return false;
+    return Math.abs(fb.lp[0] - fa.lp[0]) > 180;
+  }
+  // direction of the shortest trip from place a to place b; null if it's too close to call
   function directionFrom(a, b, strict) {
     const fa = mainFeature(a), fb = mainFeature(b); if (!fa || !fb) return null;
+    const raw = Math.abs(fb.lp[0] - fa.lp[0]);
+    if (strict && raw > 140 && raw < 220) return null; // halfway around the world: going east or west is about the same
     const dx = ((fb.lp[0] - fa.lp[0] + 540) % 360) - 180, dy = fb.lp[1] - fa.lp[1];
     const ang = (Math.atan2(dx, dy) * 180 / Math.PI + 360) % 360;
     const i = Math.round(ang / 45) % 8, off = Math.abs(((ang - i * 45 + 540) % 360) - 180);
@@ -903,6 +1028,10 @@
       const cardinal = DIRS.indexOf(d) % 2 === 0;
       const opts = cardinal ? ['north', 'east', 'south', 'west'] : ['northeast', 'southeast', 'southwest', 'northwest'];
       const cap = (x) => x[0].toUpperCase() + x.slice(1);
+      if (acrossPacific(from, r)) {
+        return { q: `🧭 You travel from ${nameOf(from)} to ${nameOf(r)} across the Pacific Ocean. Which direction do you go? (Use the compass!)`, opts: opts.map(cap), ans: cap(d),
+          explain: `Across the Pacific Ocean, you go ${d}. On the flat map, that means going off one edge and coming back on the other side. Spin the 3D globe to see it!` };
+      }
       return { q: `🧭 Which direction is ${nameOf(r)} from ${nameOf(from)}? (Use the compass!)`, opts: opts.map(cap), ans: cap(d),
         explain: `${nameOf(r)} is ${d} of ${nameOf(from)}.` };
     },
