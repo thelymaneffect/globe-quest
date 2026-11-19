@@ -408,6 +408,13 @@
       this._raf = requestAnimationFrame(() => { this._raf = null; this._render(); this._drawGuideLabels(this.ctx); this._drawHere(this.ctx); this.onRender && this.onRender(); });
     }
 
+    // draw right now instead of on the next frame (used while the "Getting the map ready" message shows,
+    // so the slow first drawing happens before any pop-up appears and buttons answer taps right away)
+    drawNow() {
+      if (this._raf) { cancelAnimationFrame(this._raf); this._raf = null; }
+      this._render(); this._drawGuideLabels(this.ctx); this._drawHere(this.ctx); this.onRender && this.onRender();
+    }
+
     _p2d(obj) {
       let p = this._pc.get(obj);
       if (!p) { p = new Path2D(this._svg(obj) || ''); this._pc.set(obj, p); }

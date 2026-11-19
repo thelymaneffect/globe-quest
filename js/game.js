@@ -642,28 +642,42 @@
     for (const r of regions) if (!S.own[r]) S.own[r] = r;
     save();
     setGuides(); buildSearch(); refresh(); syncHud();
-    loadAll(['data/parks.js', 'data/park-pics.js']).then(() => map.draw()).catch(() => { /* parks are optional */ });
+    try { map.drawNow(); } catch (e) { map.draw(); } // the slow first drawing happens now, while "Getting the map ready" shows
     banner(null);
-    loadAll(DETAIL_SCRIPTS).then(() => {
+    // Rivers, lakes, mountains, cities, and parks only show when zoomed in, so they load AFTER the
+    // "Choose your country" pop-up is closed. Loading them while it was open made its button freeze.
+    let detailsStarted = false;
+    const loadDetails = () => {
+    if (detailsStarted || M !== MODES[key]) return; // already loading, or the player already left this map
+    detailsStarted = true;
+    loadAll(['data/parks.js', 'data/park-pics.js']).then(() => map.draw()).catch(() => { /* parks are optional */ });
+    loadAll(key === 'us' ? [...DETAIL_SCRIPTS, 'data/us-detail.js'] : DETAIL_SCRIPTS).then(() => {
+      if (M !== MODES[key]) return;
       let rivers = window.RIVERS, features = window.GEOFEATURES;
-      if (key === 'us') { // keep only rivers & mountains that are inside the 50 states
-        const usa = topojson.merge(topo, topo.objects.states.geometries);
-        const inUS = (pt) => d3.geoContains(usa, pt);
-        features = features.filter((f) => inUS([f[1], f[2]]));
-        rivers = { type: 'FeatureCollection', features: rivers.features.filter((r) => {
-          const lines = r.geometry.type === 'LineString' ? [r.geometry.coordinates] : r.geometry.coordinates;
-          return lines.some((l) => l.some((pt, i) => i % 6 === 0 && inUS(pt)));
-        }) };
+      if (key === 'us') { // keep only rivers & mountains that are inside the 50 states (worked out ahead of time by tools/make-us-detail.cjs)
+        const U = window.US_DETAIL;
+        if (U && U.nRivers === rivers.features.length && U.nFeatures === features.length) {
+          features = U.features.map((i) => features[i]);
+          rivers = { type: 'FeatureCollection', features: U.rivers.map((i) => rivers.features[i]) };
+        } else { features = []; rivers = { type: 'FeatureCollection', features: [] }; } // list is out of date: skip rather than freeze
       }
       // stars = capitals; dots = the top 5 popular cities of each place (skipping any that already has a star)
       const stars = window.PLACES.filter((p) => (key === 'us' ? p[5] === 'US' && p[3] >= 1 : p[3] === 2));
       const cities = (window.CITIES[key] || []).filter((c) => !stars.some((st) => Math.abs(st[1] - c[1]) < 0.12 && Math.abs(st[2] - c[2]) < 0.12));
-      map.detail = { places: stars, cities, rivers, lakes: window.LAKES, features };
+      let lakes = window.LAKES;
+      if (key === 'us') { // only lakes near the USA (drawing every lake on Earth the first time was slow)
+        const first = (g) => { let c = g.coordinates; while (Array.isArray(c[0])) c = c[0]; return c; };
+        lakes = { type: 'FeatureCollection', features: lakes.features.filter((f) => { const [x, y] = first(f.geometry); return x < -60 && y > 15; }) };
+      }
+      map.detail = { places: stars, cities, rivers, lakes, features };
       map.draw();
     }).catch(() => { /* details are optional */ });
+    };
     $('#btnPassport').hidden = explore; $('#zHere').hidden = explore;
+    if (!explore && S.phase === 'pick') { introPick(() => setTimeout(loadDetails, 300)); setTimeout(loadDetails, 15000); } // (backup in case the pop-up is replaced by another one)
+    else loadDetails();
     if (explore) banner(`🔭 Zoom in to see famous places. Tap a picture or any ${M.unit} to learn about it!`, 6000);
-    else if (S.phase === 'pick') introPick();
+    else if (S.phase === 'pick') { /* pop-up shown above */ }
     else if (S.phase === 'respawn') respawnPrompt();
     else if (S.phase === 'won') showWin();
     else if (S.phase === 'antarctica') finalIntro();
@@ -859,13 +873,13 @@
   }
 
   /* ================= PICK YOUR COUNTRY ================= */
-  function introPick() {
+  function introPick(onClose) {
     banner(`👆 Tap the ${M.unit} you want to be!`);
     openModal(`<div style="text-align:center;font-size:54px">${M.key === 'us' ? '🇺🇸' : '🌍'}</div>
       <h3 class="mtitle">Choose your ${M.unit}!</h3>
       <p class="center">Tap any ${M.unit} on the map to learn about it. When you find the one you want, press <b>Play as…</b></p>
       <p class="center small">Tip: drag to move, pinch or scroll to zoom, or use the 🔎 search box.</p>
-      <div class="btn-row"><button class="btn gold" data-close>Let’s go!</button></div>`);
+      <div class="btn-row"><button class="btn gold" data-close>Let’s go!</button></div>`, { onClose });
   }
 
   function chooseColor(r) {
